@@ -291,7 +291,7 @@ export class Ecosystem {
     const group = new THREE.Group();
 
     const sizeCm = Math.round(species.minSizeCm + Math.random() * (species.maxSizeCm - species.minSizeCm));
-    const scale = (sizeCm / 45) * 0.75 + 0.35;
+    const scale = Math.max(0.18, Math.min(3.0, (sizeCm / 70) * 0.75 + 0.15));
 
     let bodyMesh: THREE.Mesh;
     let tailMesh: THREE.Mesh;
@@ -1302,8 +1302,9 @@ export class Ecosystem {
           fish.targetX = trap.x + (Math.random() - 0.5) * 0.3;
           fish.targetZ = trap.z + (Math.random() - 0.5) * 0.3;
 
-          // If fish enters the trap entrance (<0.65m)
-          if (dist < 0.65 && trap.caughtFish.length < (trap.maxCapacity || 5)) {
+          // If fish enters the trap entrance (<0.65m) and fits the funnel (small non-predator fish <= 35cm only)
+          const fitsTrap = fish.sizeCm <= 35 && fish.species.shape !== 'hammerhead' && fish.species.shape !== 'shark' && !fish.species.isLargePredator && !fish.species.isPredator;
+          if (dist < 0.65 && fitsTrap && trap.caughtFish.length < (trap.maxCapacity || 5)) {
             // Trapped!
             trap.caughtFish.push({
               speciesId: fish.species.id,
@@ -1824,12 +1825,27 @@ export class Ecosystem {
       fish.x += fish.vx * delta;
       fish.z += fish.vz * delta;
 
-      // Keep within ocean water boundaries (avoid getting beached on central island)
+      // Keep within ocean water boundaries (strictly avoid getting beached on central island or protruding)
       const groundY = this.engine.getTerrainHeight(fish.x, fish.z);
-      if (groundY > -0.2) {
+      const isLargeApex = fish.species.isLargePredator || fish.species.role === 'apex_predator' || fish.sizeCm > 80;
+      
+      if (isLargeApex && (groundY > -1.8 || Math.sqrt(fish.x * fish.x + fish.z * fish.z) < 32)) {
+        const currentAngle = Math.atan2(fish.z, fish.x);
+        fish.targetX = Math.cos(currentAngle) * 75;
+        fish.targetZ = Math.sin(currentAngle) * 75;
+      } else if (groundY > -0.4) {
         const currentAngle = Math.atan2(fish.z, fish.x);
         fish.targetX = Math.cos(currentAngle) * 45;
         fish.targetZ = Math.sin(currentAngle) * 45;
+      }
+
+      // Strong repulsive force away from shallow island shores
+      if (groundY > -0.3) {
+        const centerDist = Math.sqrt(fish.x * fish.x + fish.z * fish.z);
+        if (centerDist > 0.1) {
+          fish.vx += (fish.x / centerDist) * 8.0 * delta;
+          fish.vz += (fish.z / centerDist) * 8.0 * delta;
+        }
       }
 
       // Vertical position based on depth preference & terrain
@@ -1851,6 +1867,11 @@ export class Ecosystem {
       }
 
       fish.y += (targetY - fish.y) * delta * 3.5;
+
+      // Rigid collision clamping to prevent protruding above water surface or clipping through seabed
+      const maxSurfaceY = -0.08;
+      const minSeabedY = groundY + (fish.sizeCm > 100 ? 0.35 : 0.10);
+      fish.y = Math.min(maxSurfaceY, Math.max(minSeabedY, fish.y));
 
       fish.group.position.set(fish.x, fish.y, fish.z);
 
@@ -2073,5 +2094,21 @@ export class Ecosystem {
     if (idx !== -1) {
       this.crabs.splice(idx, 1);
     }
+  }
+
+  // --- RELEASE LIVE FISH (FROM PALM SHELL STORAGE) ---
+  public releaseLiveFish(speciesId: string, sizeCm: number, x: number, z: number): FishInstance | null {
+    const species = FISH_SPECIES.find((s) => s.id === speciesId) || FISH_SPECIES[0];
+    const fish = this.spawnFish(species, this.fishList.length, false, x, z);
+    fish.x = x;
+    fish.z = z;
+    fish.sizeCm = sizeCm;
+    const groundY = this.engine.getTerrainHeight(x, z);
+    fish.y = Math.max(groundY + 0.15, Math.min(-0.25, groundY + 0.6));
+    fish.group.position.set(fish.x, fish.y, fish.z);
+    fish.isSpooked = true;
+    fish.spookTimer = 3.0;
+    fish.burstMultiplier = 2.0;
+    return fish;
   }
 }

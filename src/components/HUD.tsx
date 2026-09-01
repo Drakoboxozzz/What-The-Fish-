@@ -5,7 +5,7 @@
 
 import React from 'react';
 import { ToolType, StructureType, GraphicsQuality } from '../types';
-import { Volume2, VolumeX, BookOpen, Hammer, HelpCircle, AlertTriangle, Waves, Footprints, Eye, Compass, Anchor, Sparkles } from 'lucide-react';
+import { Volume2, VolumeX, BookOpen, Hammer, HelpCircle, AlertTriangle, Waves, Footprints, Eye, Sparkles, Anchor } from 'lucide-react';
 import { ITEM_DATABASE } from './InventoryModal';
 
 interface HUDProps {
@@ -73,120 +73,144 @@ export const HUD: React.FC<HUDProps> = ({
   totalFishCaughtCount,
 }) => {
   return (
-    <div className="fixed inset-0 pointer-events-none z-20 flex flex-col justify-between p-4 md:p-6 select-none font-sans">
+    <div className="fixed inset-0 pointer-events-none z-20 flex flex-col justify-between p-3 sm:p-4 md:p-6 select-none font-sans">
       {/* TOP BAR */}
-      <div className="flex items-start justify-between gap-4">
+      <div className="flex items-start justify-between gap-2 sm:gap-4">
         {/* Title / Mini Info */}
-        <div className="bg-white/95 text-[#2D3436] border-4 border-[#2D3436] rounded-3xl p-3 shadow-[6px_6px_0px_0px_#2D3436] flex items-center gap-3 pointer-events-auto transition-transform hover:scale-[1.01]">
-          <div className="w-11 h-11 rounded-2xl bg-[#FF7675] border-2 border-[#2D3436] flex items-center justify-center text-white font-black text-xl shadow-[2px_2px_0px_0px_#2D3436]">
+        <div
+          onTouchStart={(e) => e.stopPropagation()}
+          onPointerDown={(e) => e.stopPropagation()}
+          className="bg-white/95 text-[#2D3436] border-3 sm:border-4 border-[#2D3436] rounded-2xl sm:rounded-3xl p-2 sm:p-3 shadow-[4px_4px_0px_0px_#2D3436] sm:shadow-[6px_6px_0px_0px_#2D3436] flex items-center gap-2 sm:gap-3 pointer-events-auto"
+        >
+          <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl sm:rounded-2xl bg-[#FF7675] border-2 border-[#2D3436] flex items-center justify-center text-white font-black text-base sm:text-lg shadow-[2px_2px_0px_0px_#2D3436]">
             🐟
           </div>
           <div>
-            <div className="flex items-center gap-2">
-              <h1 className="text-xs font-black tracking-tight uppercase text-[#2D3436]">WHAT THE FISH?</h1>
-              <span className="bg-[#55EFC4] text-[#00B894] border-2 border-[#2D3436] px-2 py-0.5 rounded-lg text-[9px] font-black tracking-wider uppercase shadow-[1px_1px_0px_0px_#2D3436]">
-                LAGOON ECOSYSTEM
+            <div className="flex items-center gap-1.5 sm:gap-2">
+              <h1 className="text-[10px] sm:text-xs font-black tracking-tight uppercase text-[#2D3436]">WHAT THE FISH?</h1>
+              <span className="hidden sm:inline bg-[#55EFC4] text-[#00B894] border-2 border-[#2D3436] px-1.5 py-0.5 rounded-md text-[8px] sm:text-[9px] font-black tracking-wider uppercase">
+                LAGOON
               </span>
             </div>
-            <div className="flex items-center gap-2 mt-0.5">
-              <span className="text-xs font-black uppercase text-[#2D3436] tracking-tight">
-                Species Discovered: <strong className="text-[#FF7675] text-sm">{totalFishCaughtCount}</strong> / 16
+            <div className="flex items-center gap-1.5 mt-0.5">
+              <span className="text-[10px] sm:text-xs font-black uppercase text-[#2D3436] tracking-tight">
+                Discovered: <strong className="text-[#FF7675]">{totalFishCaughtCount}</strong> / 16
               </span>
             </div>
           </div>
         </div>
 
         {/* Action Buttons */}
-        <div className="flex items-center gap-2.5 pointer-events-auto">
+        <div
+          onTouchStart={(e) => e.stopPropagation()}
+          onPointerDown={(e) => e.stopPropagation()}
+          className="flex items-center gap-1.5 sm:gap-2.5 pointer-events-auto flex-wrap justify-end"
+        >
           {/* Inventory / Pack Button */}
           <button
+            onTouchStart={(e) => e.stopPropagation()}
+            onPointerDown={(e) => e.stopPropagation()}
             onClick={onOpenInventory}
-            className="px-4 py-2.5 rounded-2xl bg-[#55EFC4] hover:bg-[#A8E6CF] text-[#2D3436] border-4 border-[#2D3436] text-xs font-black shadow-[4px_4px_0px_0px_#2D3436] active:translate-x-[2px] active:translate-y-[2px] active:shadow-[2px_2px_0px_0px_#2D3436] flex items-center gap-2 transition-all cursor-pointer"
+            className="px-2.5 sm:px-4 py-2 sm:py-2.5 rounded-xl sm:rounded-2xl bg-[#55EFC4] hover:bg-[#A8E6CF] text-[#2D3436] border-3 sm:border-4 border-[#2D3436] text-[11px] sm:text-xs font-black shadow-[3px_3px_0px_0px_#2D3436] sm:shadow-[4px_4px_0px_0px_#2D3436] active:translate-x-[2px] active:translate-y-[2px] flex items-center gap-1.5 sm:gap-2 transition-all cursor-pointer"
             title="Open Backpack / Inventory (Key: E or I)"
           >
-            <span className="text-sm">🎒</span>
+            <span className="text-xs sm:text-sm">🎒</span>
             <span className="uppercase tracking-wider hidden sm:inline">Pack</span>
-            <kbd className="text-[10px] bg-white text-[#2D3436] px-1.5 py-0.5 rounded border border-[#2D3436] font-mono">E</kbd>
+            <kbd className="text-[9px] sm:text-[10px] bg-white text-[#2D3436] px-1 sm:px-1.5 py-0.5 rounded border border-[#2D3436] font-mono hidden sm:inline">E</kbd>
           </button>
 
           {/* Camera View Toggle Button */}
           <button
+            onTouchStart={(e) => e.stopPropagation()}
+            onPointerDown={(e) => e.stopPropagation()}
             onClick={onToggleCamera}
-            className={`px-3.5 py-2.5 rounded-2xl border-4 border-[#2D3436] text-xs font-black shadow-[4px_4px_0px_0px_#2D3436] active:translate-x-[2px] active:translate-y-[2px] active:shadow-[2px_2px_0px_0px_#2D3436] flex items-center gap-1.5 transition-all cursor-pointer ${
+            className={`px-2.5 sm:px-3.5 py-2 sm:py-2.5 rounded-xl sm:rounded-2xl border-3 sm:border-4 border-[#2D3436] text-[11px] sm:text-xs font-black shadow-[3px_3px_0px_0px_#2D3436] sm:shadow-[4px_4px_0px_0px_#2D3436] active:translate-x-[2px] active:translate-y-[2px] flex items-center gap-1 sm:gap-1.5 transition-all cursor-pointer ${
               isThirdPerson ? 'bg-[#A29BFE] text-white' : 'bg-white text-[#2D3436]'
             }`}
             title="Toggle 1st / 3rd Person View (Key: V)"
           >
-            <Eye className="w-4 h-4 stroke-[3]" />
-            <span className="uppercase tracking-wider hidden sm:inline">{isThirdPerson ? '3rd Person' : '1st Person'}</span>
-            <kbd className="text-[10px] bg-[#DFE6E9] text-[#2D3436] px-1.5 py-0.5 rounded border border-[#2D3436] font-mono">V</kbd>
+            <Eye className="w-3.5 h-3.5 sm:w-4 sm:h-4 stroke-[3]" />
+            <span className="uppercase tracking-wider hidden sm:inline">{isThirdPerson ? '3rd' : '1st'}</span>
+            <kbd className="text-[9px] sm:text-[10px] bg-[#DFE6E9] text-[#2D3436] px-1 sm:px-1.5 py-0.5 rounded border border-[#2D3436] font-mono hidden sm:inline">V</kbd>
           </button>
 
           {/* Fishodex Button */}
           <button
+            onTouchStart={(e) => e.stopPropagation()}
+            onPointerDown={(e) => e.stopPropagation()}
             onClick={onOpenFishodex}
-            className="px-4 py-2.5 rounded-2xl bg-white hover:bg-[#FFEAA7] text-[#2D3436] border-4 border-[#2D3436] text-xs font-black shadow-[4px_4px_0px_0px_#2D3436] active:translate-x-[2px] active:translate-y-[2px] active:shadow-[2px_2px_0px_0px_#2D3436] flex items-center gap-2 transition-all cursor-pointer"
+            className="px-2.5 sm:px-4 py-2 sm:py-2.5 rounded-xl sm:rounded-2xl bg-white hover:bg-[#FFEAA7] text-[#2D3436] border-3 sm:border-4 border-[#2D3436] text-[11px] sm:text-xs font-black shadow-[3px_3px_0px_0px_#2D3436] sm:shadow-[4px_4px_0px_0px_#2D3436] active:translate-x-[2px] active:translate-y-[2px] flex items-center gap-1.5 sm:gap-2 transition-all cursor-pointer"
           >
-            <BookOpen className="w-4 h-4 stroke-[3] text-[#00B894]" />
+            <BookOpen className="w-3.5 h-3.5 sm:w-4 sm:h-4 stroke-[3] text-[#00B894]" />
             <span className="uppercase tracking-wider hidden sm:inline">Fishodex</span>
-            <kbd className="text-[10px] bg-[#DFE6E9] text-[#2D3436] px-1.5 py-0.5 rounded border border-[#2D3436] font-mono">B</kbd>
+            <kbd className="text-[9px] sm:text-[10px] bg-[#DFE6E9] text-[#2D3436] px-1 sm:px-1.5 py-0.5 rounded border border-[#2D3436] font-mono hidden sm:inline">B</kbd>
           </button>
 
           {/* Crafting Button */}
           <button
+            onTouchStart={(e) => e.stopPropagation()}
+            onPointerDown={(e) => e.stopPropagation()}
             onClick={onOpenCrafting}
-            className="px-4 py-2.5 rounded-2xl bg-[#FDCB6E] hover:bg-[#FFEAA7] text-[#2D3436] border-4 border-[#2D3436] text-xs font-black shadow-[4px_4px_0px_0px_#2D3436] active:translate-x-[2px] active:translate-y-[2px] active:shadow-[2px_2px_0px_0px_#2D3436] flex items-center gap-2 transition-all cursor-pointer"
+            className="px-2.5 sm:px-4 py-2 sm:py-2.5 rounded-xl sm:rounded-2xl bg-[#FDCB6E] hover:bg-[#FFEAA7] text-[#2D3436] border-3 sm:border-4 border-[#2D3436] text-[11px] sm:text-xs font-black shadow-[3px_3px_0px_0px_#2D3436] sm:shadow-[4px_4px_0px_0px_#2D3436] active:translate-x-[2px] active:translate-y-[2px] flex items-center gap-1.5 sm:gap-2 transition-all cursor-pointer"
           >
-            <Hammer className="w-4 h-4 stroke-[3] text-[#2D3436]" />
-            <span className="uppercase tracking-wider">Craft</span>
-            <kbd className="text-[10px] bg-white text-[#2D3436] px-1.5 py-0.5 rounded border border-[#2D3436] font-mono">Tab</kbd>
+            <Hammer className="w-3.5 h-3.5 sm:w-4 sm:h-4 stroke-[3] text-[#2D3436]" />
+            <span className="uppercase tracking-wider hidden sm:inline">Craft</span>
+            <kbd className="text-[9px] sm:text-[10px] bg-white text-[#2D3436] px-1 sm:px-1.5 py-0.5 rounded border border-[#2D3436] font-mono hidden sm:inline">Tab</kbd>
           </button>
 
           {/* Graphics Quality Toggle Button */}
           {onToggleQuality && (
             <button
+              onTouchStart={(e) => e.stopPropagation()}
+              onPointerDown={(e) => e.stopPropagation()}
               onClick={onToggleQuality}
-              className="px-3 py-2.5 rounded-2xl bg-white hover:bg-[#FFEAA7] text-[#2D3436] border-4 border-[#2D3436] text-[11px] font-black shadow-[4px_4px_0px_0px_#2D3436] active:translate-x-[2px] active:translate-y-[2px] active:shadow-[2px_2px_0px_0px_#2D3436] flex items-center gap-1.5 transition-all cursor-pointer uppercase"
+              className="px-2 sm:px-3 py-2 sm:py-2.5 rounded-xl sm:rounded-2xl bg-white hover:bg-[#FFEAA7] text-[#2D3436] border-3 sm:border-4 border-[#2D3436] text-[10px] sm:text-[11px] font-black shadow-[3px_3px_0px_0px_#2D3436] sm:shadow-[4px_4px_0px_0px_#2D3436] active:translate-x-[2px] active:translate-y-[2px] flex items-center gap-1 sm:gap-1.5 transition-all cursor-pointer uppercase"
               title={`Graphics Quality: ${(graphicsQuality || 'high').toUpperCase()}`}
             >
               <Sparkles className="w-3.5 h-3.5 text-[#E17055]" />
-              <span className="hidden sm:inline">Quality:</span>
+              <span className="hidden md:inline">Quality:</span>
               <span className="text-[#0984E3]">{graphicsQuality?.toUpperCase() || 'HIGH'}</span>
             </button>
           )}
 
           {/* Guide Button */}
           <button
+            onTouchStart={(e) => e.stopPropagation()}
+            onPointerDown={(e) => e.stopPropagation()}
             onClick={onOpenGuide}
-            className="w-11 h-11 rounded-2xl bg-[#74B9FF] hover:bg-[#87CEEB] text-[#2D3436] border-4 border-[#2D3436] flex items-center justify-center shadow-[4px_4px_0px_0px_#2D3436] active:translate-x-[2px] active:translate-y-[2px] active:shadow-[2px_2px_0px_0px_#2D3436] transition-all cursor-pointer"
+            className="w-9 h-9 sm:w-11 sm:h-11 rounded-xl sm:rounded-2xl bg-[#74B9FF] hover:bg-[#87CEEB] text-[#2D3436] border-3 sm:border-4 border-[#2D3436] flex items-center justify-center shadow-[3px_3px_0px_0px_#2D3436] sm:shadow-[4px_4px_0px_0px_#2D3436] active:translate-x-[2px] active:translate-y-[2px] transition-all cursor-pointer"
             title="Help / Controls (Key: H)"
           >
-            <HelpCircle className="w-5 h-5 stroke-[3]" />
+            <HelpCircle className="w-4 h-4 sm:w-5 sm:h-5 stroke-[3]" />
           </button>
 
           {/* Audio Button */}
           <button
+            onTouchStart={(e) => e.stopPropagation()}
+            onPointerDown={(e) => e.stopPropagation()}
             onClick={onToggleMute}
-            className={`w-11 h-11 rounded-2xl ${isMuted ? 'bg-[#FF7675] text-white' : 'bg-[#55EFC4] text-[#2D3436]'} hover:brightness-105 border-4 border-[#2D3436] flex items-center justify-center shadow-[4px_4px_0px_0px_#2D3436] active:translate-x-[2px] active:translate-y-[2px] active:shadow-[2px_2px_0px_0px_#2D3436] transition-all cursor-pointer`}
+            className={`w-9 h-9 sm:w-11 sm:h-11 rounded-xl sm:rounded-2xl ${
+              isMuted ? 'bg-[#FF7675] text-white' : 'bg-[#55EFC4] text-[#2D3436]'
+            } hover:brightness-105 border-3 sm:border-4 border-[#2D3436] flex items-center justify-center shadow-[3px_3px_0px_0px_#2D3436] sm:shadow-[4px_4px_0px_0px_#2D3436] active:translate-x-[2px] active:translate-y-[2px] transition-all cursor-pointer`}
             title={isMuted ? 'Unmute Sound' : 'Mute Sound'}
           >
-            {isMuted ? <VolumeX className="w-5 h-5 stroke-[3]" /> : <Volume2 className="w-5 h-5 stroke-[3]" />}
+            {isMuted ? <VolumeX className="w-4 h-4 sm:w-5 sm:h-5 stroke-[3]" /> : <Volume2 className="w-4 h-4 sm:w-5 sm:h-5 stroke-[3]" />}
           </button>
         </div>
       </div>
 
       {/* CENTER NOTIFICATION & RETICLE */}
-      <div className="flex flex-col items-center justify-center pointer-events-none space-y-3">
+      <div className="flex flex-col items-center justify-center pointer-events-none space-y-2 sm:space-y-3">
         {/* Notification Banner */}
         {notification && (
-          <div className="bg-[#2D3436] text-white px-6 py-3 rounded-2xl border-4 border-[#00B894] shadow-[6px_6px_0px_0px_rgba(0,0,0,0.3)] text-xs md:text-sm font-black uppercase tracking-wider animate-in fade-in slide-in-from-top-2 duration-150">
+          <div className="bg-[#2D3436] text-white px-4 sm:px-6 py-2 sm:py-3 rounded-xl sm:rounded-2xl border-3 sm:border-4 border-[#00B894] shadow-[5px_5px_0px_0px_rgba(0,0,0,0.3)] text-xs sm:text-sm font-black uppercase tracking-wider animate-in fade-in slide-in-from-top-2 duration-150 text-center max-w-sm sm:max-w-md">
             {notification}
           </div>
         )}
 
         {/* Boundary Warning */}
         {boundaryWarning && (
-          <div className="bg-[#FF7675] text-white px-5 py-2.5 rounded-2xl border-4 border-[#2D3436] text-xs font-black shadow-[6px_6px_0px_0px_#2D3436] flex items-center gap-2 animate-bounce uppercase tracking-wider">
+          <div className="bg-[#FF7675] text-white px-4 sm:px-5 py-2 sm:py-2.5 rounded-xl sm:rounded-2xl border-3 sm:border-4 border-[#2D3436] text-[11px] sm:text-xs font-black shadow-[4px_4px_0px_0px_#2D3436] flex items-center gap-2 animate-bounce uppercase tracking-wider">
             <AlertTriangle className="w-4 h-4 text-white stroke-[3]" />
             Lagoon Boundary: Outer ocean current ahead!
           </div>
@@ -194,70 +218,59 @@ export const HUD: React.FC<HUDProps> = ({
 
         {/* Raft Steering Overlay */}
         {isPilotingRaft && (
-          <div className="bg-[#00CEC9] text-[#2D3436] px-6 py-3 rounded-2xl border-4 border-[#2D3436] shadow-[6px_6px_0px_0px_#2D3436] text-xs font-black uppercase tracking-wider flex items-center gap-2.5 animate-pulse">
-            <Anchor className="w-5 h-5 stroke-[3]" />
-            <span>⛵ Piloting Raft — Steer with [W/A/S/D] or [Q/E]. Press [Space] or [E] to Disembark.</span>
+          <div className="bg-[#00CEC9] text-[#2D3436] px-4 sm:px-6 py-2 sm:py-3 rounded-xl sm:rounded-2xl border-3 sm:border-4 border-[#2D3436] shadow-[5px_5px_0px_0px_#2D3436] text-[11px] sm:text-xs font-black uppercase tracking-wider flex items-center gap-2.5 animate-pulse text-center">
+            <Anchor className="w-4 h-4 sm:w-5 sm:h-5 stroke-[3] shrink-0" />
+            <span>⛵ Piloting Raft — Steer with joystick/WASD. Press Space/Jump to Disembark.</span>
           </div>
         )}
 
         {/* Center Reticle */}
         {!isPilotingRaft && (
-          <div className="w-6 h-6 rounded-full border-2 border-white/80 bg-white/20 flex items-center justify-center shadow-md">
+          <div className="w-5 h-5 sm:w-6 sm:h-6 rounded-full border-2 border-white/80 bg-white/20 flex items-center justify-center shadow-md">
             <div className="w-1.5 h-1.5 rounded-full bg-[#2D3436] border border-white" />
           </div>
         )}
 
         {/* Contextual Interaction Prompt */}
         {promptText && (
-          <div className="bg-white text-[#2D3436] px-5 py-2.5 rounded-2xl border-4 border-[#2D3436] shadow-[5px_5px_0px_0px_#2D3436] text-xs font-black uppercase tracking-wider animate-pulse">
+          <div className="bg-white text-[#2D3436] px-4 sm:px-5 py-2 sm:py-2.5 rounded-xl sm:rounded-2xl border-3 sm:border-4 border-[#2D3436] shadow-[4px_4px_0px_0px_#2D3436] text-[11px] sm:text-xs font-black uppercase tracking-wider animate-pulse text-center max-w-xs">
             {promptText}
           </div>
         )}
 
         {/* Special Tool Context Helper */}
-        {equippedTool === 'stone_pickaxe' && (
-          <div className="bg-white/95 text-[#2D3436] px-4 py-2 rounded-2xl border-3 border-[#2D3436] shadow-[4px_4px_0px_0px_#2D3436] text-xs font-black uppercase tracking-tight flex items-center gap-2">
-            <span>⛏️ Left-Click: Mine Boulders & Rocky Outcrops into Stone</span>
-          </div>
-        )}
-
-        {equippedTool === 'spear' && (
-          <div className="bg-white/95 text-[#2D3436] px-4 py-2 rounded-2xl border-3 border-[#2D3436] shadow-[4px_4px_0px_0px_#2D3436] text-xs font-black uppercase tracking-tight flex items-center gap-2">
-            <span>🔱 Right-Click / [R]: Throw Spear</span>
-            <span className="text-[#636E72]">|</span>
-            <span>Left-Click: Spear Shallows</span>
-          </div>
-        )}
-
-        {equippedTool === 'palm_shell' && (
-          <div className="bg-white/95 text-[#2D3436] px-4 py-2 rounded-2xl border-3 border-[#2D3436] shadow-[4px_4px_0px_0px_#2D3436] text-xs font-black uppercase tracking-tight flex items-center gap-2">
-            <span>🥥 Left-Click: Scoop & Catch Live Small Fish in Shell</span>
-          </div>
-        )}
-
         {equippedTool === 'wood_structure' && (
-          <div className="bg-white/95 text-[#2D3436] px-4 py-2 rounded-2xl border-3 border-[#2D3436] shadow-[4px_4px_0px_0px_#2D3436] text-xs font-black uppercase tracking-tight flex items-center gap-3">
-            <span>🛖 Piece: <strong className="text-[#FF7675]">{selectedStructureType.toUpperCase()}</strong></span>
+          <div
+            onTouchStart={(e) => e.stopPropagation()}
+            onPointerDown={(e) => e.stopPropagation()}
+            className="bg-white/95 text-[#2D3436] px-3 sm:px-4 py-1.5 sm:py-2 rounded-xl sm:rounded-2xl border-2 sm:border-3 border-[#2D3436] shadow-[3px_3px_0px_0px_#2D3436] text-[10px] sm:text-xs font-black uppercase tracking-tight flex items-center gap-2"
+          >
+            <span>Piece: <strong className="text-[#FF7675]">{selectedStructureType.toUpperCase()}</strong></span>
             <button
+              onTouchStart={(e) => e.stopPropagation()}
+              onPointerDown={(e) => e.stopPropagation()}
               onClick={onCycleStructureType}
-              className="pointer-events-auto bg-[#FFEAA7] hover:bg-[#FDCB6E] text-[#2D3436] px-2.5 py-1 rounded-xl border-2 border-[#2D3436] text-[10px] font-black uppercase shadow-[2px_2px_0px_0px_#2D3436] cursor-pointer"
+              className="pointer-events-auto bg-[#FFEAA7] hover:bg-[#FDCB6E] text-[#2D3436] px-2 py-0.5 rounded-lg border-2 border-[#2D3436] text-[9px] font-black uppercase cursor-pointer"
             >
-              [R] Cycle Piece
+              Cycle Piece
             </button>
-            <span className="text-[#636E72]">Left-Click to Place</span>
           </div>
         )}
 
         {/* Rod Reel Minigame Widget */}
         {rodState.state === 'hooked' && (
-          <div className="bg-white text-[#2D3436] border-4 border-[#2D3436] p-5 rounded-3xl shadow-[8px_8px_0px_0px_#2D3436] text-center space-y-2.5 w-72 animate-in zoom-in-95 pointer-events-auto">
-            <div className="text-sm font-black text-[#FF7675] uppercase tracking-wider flex items-center justify-center gap-1.5">
+          <div
+            onTouchStart={(e) => e.stopPropagation()}
+            onPointerDown={(e) => e.stopPropagation()}
+            className="bg-white text-[#2D3436] border-4 border-[#2D3436] p-4 sm:p-5 rounded-2xl sm:rounded-3xl shadow-[6px_6px_0px_0px_#2D3436] text-center space-y-2 w-64 sm:w-72 animate-in zoom-in-95 pointer-events-auto"
+          >
+            <div className="text-xs sm:text-sm font-black text-[#FF7675] uppercase tracking-wider flex items-center justify-center gap-1.5">
               <span>🎣 FISH HOOKED! REEL IN!</span>
             </div>
-            <p className="text-[11px] font-bold text-[#636E72]">Click / Tap rapidly to keep tension inside the green!</p>
+            <p className="text-[10px] sm:text-[11px] font-bold text-[#636E72]">Tap REEL to keep tension inside the green zone!</p>
 
             {/* Tension Bar */}
-            <div className="w-full h-6 bg-[#DFE6E9] rounded-full border-3 border-[#2D3436] relative overflow-hidden">
+            <div className="w-full h-5 sm:h-6 bg-[#DFE6E9] rounded-full border-2 sm:border-3 border-[#2D3436] relative overflow-hidden">
               <div className="absolute left-[35%] w-[40%] h-full bg-[#55EFC4] border-x-2 border-[#00B894]" />
               <div
                 className={`h-full transition-all duration-75 ${
@@ -271,14 +284,18 @@ export const HUD: React.FC<HUDProps> = ({
       </div>
 
       {/* BOTTOM SECTION (Supplies + Oxygen Gauge + Tool Hotbar) */}
-      <div className="flex flex-col items-center gap-2.5">
+      <div className="flex flex-col items-center gap-2">
         {/* Oxygen / Air Gauge while Diving */}
         {(inWater || isDiving || airPercent < 98) && (
-          <div className="bg-white/95 border-3 border-[#2D3436] rounded-2xl px-4 py-2 shadow-[4px_4px_0px_0px_#2D3436] flex items-center gap-3 text-xs font-black pointer-events-auto">
-            <span className="text-[11px] uppercase tracking-wider text-[#00B894] flex items-center gap-1">
-              🫁 Oxygen:
+          <div
+            onTouchStart={(e) => e.stopPropagation()}
+            onPointerDown={(e) => e.stopPropagation()}
+            className="bg-white/95 border-2 sm:border-3 border-[#2D3436] rounded-xl sm:rounded-2xl px-3 sm:px-4 py-1.5 sm:py-2 shadow-[3px_3px_0px_0px_#2D3436] flex items-center gap-2 sm:gap-3 text-xs font-black pointer-events-auto"
+          >
+            <span className="text-[10px] sm:text-[11px] uppercase tracking-wider text-[#00B894] flex items-center gap-1">
+              🫁 Air:
             </span>
-            <div className="w-32 h-4 bg-[#DFE6E9] rounded-full border-2 border-[#2D3436] overflow-hidden">
+            <div className="w-24 sm:w-32 h-3.5 sm:h-4 bg-[#DFE6E9] rounded-full border-2 border-[#2D3436] overflow-hidden">
               <div
                 className={`h-full transition-all duration-150 ${
                   airPercent > 40 ? 'bg-[#00CEC9]' : airPercent > 20 ? 'bg-[#FDCB6E]' : 'bg-[#FF7675] animate-pulse'
@@ -286,41 +303,32 @@ export const HUD: React.FC<HUDProps> = ({
                 style={{ width: `${airPercent}%` }}
               />
             </div>
-            <span className="text-[11px] font-mono font-bold text-[#2D3436]">{Math.round(airPercent)}%</span>
+            <span className="text-[10px] sm:text-[11px] font-mono font-bold text-[#2D3436]">{Math.round(airPercent)}%</span>
           </div>
         )}
 
-        {/* Supplies Mini Bar */}
-        <div className="bg-white/95 border-3 border-[#2D3436] rounded-2xl px-4 py-1.5 shadow-[4px_4px_0px_0px_#2D3436] flex items-center gap-3 text-xs font-black pointer-events-auto flex-wrap">
-          <span className="text-[10px] uppercase text-[#636E72] tracking-wider">Supplies:</span>
-          <span className="text-[#854d0e]">🪵 {inventory.wood || 0}</span>
-          <span className="text-[#576574]">🪨 {(inventory.stone || 0) + (inventory.rock || 0)}</span>
-          <span className="text-[#16a34a]">🌿 {inventory.fiber || 0}</span>
-          <span className="text-[#d97706]">🪢 {inventory.rope || 0}</span>
-          {inventory.crab ? <span className="text-[#ea580c]">🦀 Crab: {inventory.crab}</span> : null}
-          {inventory.fruit ? <span className="text-[#8b5cf6]">🫐 Fruit: {inventory.fruit}</span> : null}
-          {inventory.palm_shell ? <span className="text-[#a16207]">🥥 Shell: {inventory.palm_shell}</span> : null}
-          {inventory.seed ? <span className="text-[#a16207]">🥥 Seed: {inventory.seed}</span> : null}
-        </div>
-
         {/* Status Pills */}
-        <div className="flex items-center gap-2.5">
+        <div className="flex items-center gap-2">
           {inWater && (
-            <div className="bg-[#4DD0E1] text-[#2D3436] border-3 border-[#2D3436] px-3.5 py-1 rounded-2xl text-xs font-black shadow-[3px_3px_0px_0px_#2D3436] flex items-center gap-1.5 uppercase">
-              <Waves className="w-4 h-4 stroke-[3]" />
-              {isDiving ? 'Lagoon Diving' : isSwimming ? 'Lagoon Swimming' : `Lagoon Wading (${waterDepth.toFixed(1)}m)`}
+            <div className="bg-[#4DD0E1] text-[#2D3436] border-2 sm:border-3 border-[#2D3436] px-2.5 sm:px-3.5 py-0.5 sm:py-1 rounded-xl sm:rounded-2xl text-[10px] sm:text-xs font-black shadow-[2px_2px_0px_0px_#2D3436] flex items-center gap-1 uppercase">
+              <Waves className="w-3.5 h-3.5 stroke-[3]" />
+              {isDiving ? 'Diving' : isSwimming ? 'Swimming' : `Wading (${waterDepth.toFixed(1)}m)`}
             </div>
           )}
           {isSneaking && (
-            <div className="bg-[#FFEAA7] text-[#2D3436] border-3 border-[#2D3436] px-3.5 py-1 rounded-2xl text-xs font-black shadow-[3px_3px_0px_0px_#2D3436] flex items-center gap-1.5 uppercase">
-              <Footprints className="w-4 h-4 stroke-[3]" />
-              {isSwimming ? 'Diving Underwater [C]' : 'Sneaking Stealth [C]'}
+            <div className="bg-[#FFEAA7] text-[#2D3436] border-2 sm:border-3 border-[#2D3436] px-2.5 sm:px-3.5 py-0.5 sm:py-1 rounded-xl sm:rounded-2xl text-[10px] sm:text-xs font-black shadow-[2px_2px_0px_0px_#2D3436] flex items-center gap-1 uppercase">
+              <Footprints className="w-3.5 h-3.5 stroke-[3]" />
+              {isSwimming ? 'Diving Underwater' : 'Sneaking Stealth'}
             </div>
           )}
         </div>
 
         {/* Hotbar - 6 Quick-Access Grid Slots */}
-        <div className="bg-white/95 border-4 border-[#2D3436] rounded-3xl p-2 md:p-2.5 shadow-[8px_8px_0px_0px_#2D3436] flex items-center gap-2 md:gap-2.5 pointer-events-auto overflow-x-auto max-w-full">
+        <div
+          onTouchStart={(e) => e.stopPropagation()}
+          onPointerDown={(e) => e.stopPropagation()}
+          className="bg-white/95 border-3 sm:border-4 border-[#2D3436] rounded-2xl sm:rounded-3xl p-1.5 sm:p-2 shadow-[5px_5px_0px_0px_#2D3436] flex items-center gap-1.5 sm:gap-2 pointer-events-auto overflow-x-auto max-w-full"
+        >
           {hotbarSlots.map((itemKey, index) => {
             const meta = itemKey ? ITEM_DATABASE[itemKey] : null;
             const count = itemKey ? (inventory[itemKey] ?? 0) : 0;
@@ -330,6 +338,8 @@ export const HUD: React.FC<HUDProps> = ({
             return (
               <button
                 key={`hud_hb_${index}`}
+                onTouchStart={(e) => e.stopPropagation()}
+                onPointerDown={(e) => e.stopPropagation()}
                 onClick={() => {
                   if (meta?.toolType) {
                     onSelectTool(meta.toolType);
@@ -337,32 +347,32 @@ export const HUD: React.FC<HUDProps> = ({
                     onSelectTool('hands');
                   }
                 }}
-                className={`relative rounded-2xl transition-all flex flex-col items-center justify-center cursor-pointer select-none ${
+                className={`relative rounded-xl sm:rounded-2xl transition-all flex flex-col items-center justify-center cursor-pointer select-none ${
                   itemKey
                     ? isEquipped
-                      ? 'w-14 h-16 md:w-16 md:h-18 bg-[#FF7675] text-white border-4 border-[#2D3436] shadow-[4px_4px_0px_0px_#2D3436] -translate-y-1.5 scale-105'
-                      : 'w-13 h-15 md:w-15 md:h-17 bg-white text-[#2D3436] hover:bg-[#FFEAA7] border-3 border-[#2D3436] shadow-[3px_3px_0px_0px_#2D3436]'
-                    : 'w-13 h-15 md:w-15 md:h-17 bg-[#DFE6E9]/40 border-2 border-dashed border-[#B2BEC3] text-[#B2BEC3]'
+                      ? 'w-12 h-14 sm:w-15 sm:h-17 bg-[#FF7675] text-white border-3 sm:border-4 border-[#2D3436] shadow-[3px_3px_0px_0px_#2D3436] -translate-y-1 scale-105'
+                      : 'w-11 h-13 sm:w-14 sm:h-16 bg-white text-[#2D3436] hover:bg-[#FFEAA7] border-2 sm:border-3 border-[#2D3436] shadow-[2px_2px_0px_0px_#2D3436]'
+                    : 'w-11 h-13 sm:w-14 sm:h-16 bg-[#DFE6E9]/40 border-2 border-dashed border-[#B2BEC3] text-[#B2BEC3]'
                 }`}
               >
                 {itemKey && meta ? (
                   <>
-                    <span className="text-xl md:text-2xl leading-none">{meta.icon}</span>
-                    <span className={`text-[8px] md:text-[9px] font-black uppercase truncate max-w-[52px] mt-0.5 ${isEquipped ? 'text-white' : 'text-[#2D3436]'}`}>
+                    <span className="text-lg sm:text-2xl leading-none">{meta.icon}</span>
+                    <span className={`text-[7px] sm:text-[9px] font-black uppercase truncate max-w-[44px] sm:max-w-[52px] mt-0.5 ${isEquipped ? 'text-white' : 'text-[#2D3436]'}`}>
                       {meta.name}
                     </span>
-                    <span className={`absolute top-1 right-1.5 text-[8px] font-black font-mono ${isEquipped ? 'text-white' : 'text-[#636E72]'}`}>
+                    <span className={`absolute top-0.5 right-1 text-[7px] sm:text-[8px] font-black font-mono ${isEquipped ? 'text-white' : 'text-[#636E72]'}`}>
                       {keyLabel}
                     </span>
 
                     {count > 0 && itemKey !== 'hands' && (
-                      <span className="absolute -bottom-1 -right-1 bg-[#FDCB6E] text-[#2D3436] border-2 border-[#2D3436] text-[8px] font-black px-1.5 py-0.1 rounded-full shadow-[1px_1px_0px_0px_#2D3436]">
+                      <span className="absolute -bottom-1 -right-1 bg-[#FDCB6E] text-[#2D3436] border-2 border-[#2D3436] text-[7px] sm:text-[8px] font-black px-1 rounded-full shadow-[1px_1px_0px_0px_#2D3436]">
                         {count}
                       </span>
                     )}
                   </>
                 ) : (
-                  <span className="text-[11px] font-mono font-bold">[{keyLabel}]</span>
+                  <span className="text-[10px] font-mono font-bold">[{keyLabel}]</span>
                 )}
               </button>
             );

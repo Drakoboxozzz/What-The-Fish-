@@ -19,8 +19,11 @@ interface CraftingModalProps {
     seed: number;
     palm_shell?: number;
     fish?: number;
+    fish_meat?: number;
     sea_grass?: number;
     kelp?: number;
+    scallop?: number;
+    barnacle?: number;
   };
   isNearCraftingTable?: boolean;
   onCraft: (recipe: CraftingRecipe) => void;
@@ -49,9 +52,12 @@ export const CraftingModal: React.FC<CraftingModalProps> = ({
     if (req.rope && (resources.rope || 0) < req.rope) return false;
     if (req.seed && (resources.seed || 0) < req.seed) return false;
     if (req.palm_shell && (resources.palm_shell || 0) < req.palm_shell) return false;
-    if (req.fish && (resources.fish || 0) < req.fish) return false;
+    if (req.fish && ((resources.fish || 0) + (resources.fish_meat || 0)) < req.fish) return false;
+    if (req.fish_meat && ((resources.fish_meat || 0) + (resources.fish || 0)) < req.fish_meat) return false;
     if (req.sea_grass && (resources.sea_grass || 0) < req.sea_grass) return false;
     if (req.kelp && (resources.kelp || 0) < req.kelp) return false;
+    if (req.scallop && (resources.scallop || 0) < req.scallop) return false;
+    if (req.barnacle && (resources.barnacle || 0) < req.barnacle) return false;
     return true;
   };
 

@@ -4,7 +4,7 @@
  */
 
 import * as THREE from 'three';
-import { PlantedTree, PlacedTrap, StructureType, PlacedStructure, PlacedRaft, PlacedCraftingTable, GraphicsQuality } from '../types';
+import { PlantedTree, PlacedTrap, StructureType, PlacedStructure, PlacedRaft, PlacedCraftingTable, GraphicsQuality, ToolType, BaitType } from '../types';
 
 export interface ThrownProjectile {
   id: string;
@@ -130,7 +130,7 @@ export interface WorldObjects {
   groundItems: Array<{
     group: THREE.Group;
     id: string;
-    type: 'wood' | 'rock' | 'stone' | 'seed' | 'fiber' | 'rope' | 'spear' | 'palm_shell' | 'crab' | 'fruit' | 'fish_trap' | 'wood_structure' | 'fish' | 'scallop' | 'barnacle' | 'chum' | 'sea_grass' | 'kelp';
+    type: ToolType;
     x: number;
     y: number;
     z: number;
@@ -291,6 +291,9 @@ export class IslandThreeEngine {
 
     // Build Flora, Rocks, Corals, Sea Grass & Kelp Forest
     this.populateIsland();
+
+    // Restore persistent world state if saved
+    this.loadWorldState();
 
     // Underwater particulate
     this.underwaterParticles = this.createUnderwaterParticles();
@@ -1336,7 +1339,7 @@ export class IslandThreeEngine {
 
   // --- GROUND ITEMS SPAWN ---
   public spawnGroundItem(
-    type: 'wood' | 'rock' | 'stone' | 'seed' | 'fiber' | 'rope' | 'spear' | 'palm_shell' | 'crab' | 'fruit' | 'fish_trap' | 'wood_structure' | 'fish' | 'chum' | 'sea_grass' | 'kelp' | 'scallop' | 'barnacle',
+    type: ToolType,
     x: number,
     z: number,
     burst: boolean = false
@@ -1424,6 +1427,17 @@ export class IslandThreeEngine {
       const geom = new THREE.CylinderGeometry(0.06, 0.12, 0.18, 6);
       const mat = new THREE.MeshStandardMaterial({ color: '#e2e8f0', roughness: 0.85, flatShading: true });
       mesh = new THREE.Mesh(geom, mat);
+    } else if (type === 'fish_meat') {
+      // Fresh fish fillet/meat chunk
+      const geom = new THREE.BoxGeometry(0.24, 0.08, 0.18);
+      const mat = new THREE.MeshStandardMaterial({ color: '#f87171', roughness: 0.6, metalness: 0.1 });
+      mesh = new THREE.Mesh(geom, mat);
+    } else if (type === 'live_fish_shell') {
+      // Palm shell with water
+      const geom = new THREE.SphereGeometry(0.22, 6, 4, 0, Math.PI * 2, 0, Math.PI * 0.55);
+      const mat = new THREE.MeshStandardMaterial({ color: '#92400e', roughness: 0.8, side: THREE.DoubleSide });
+      mesh = new THREE.Mesh(geom, mat);
+      mesh.rotation.x = Math.PI;
     } else {
       // Fiber
       const geom = new THREE.TorusGeometry(0.18, 0.06, 4, 8);
@@ -1435,13 +1449,21 @@ export class IslandThreeEngine {
     group.add(mesh);
 
     const terrainY = this.getTerrainHeight(x, z);
-    const startY = burst ? Math.max(0.2, terrainY) + 1.2 : Math.max(0.1, terrainY + 0.15);
+    const buoyant = type === 'wood' || type === 'palm_shell' || type === 'live_fish_shell' || type === 'seed' || type === 'fiber' || type === 'rope' || type === 'fruit';
+    
+    let startY = terrainY + 0.12;
+    if (buoyant) {
+      startY = Math.max(0.04, terrainY + 0.12);
+    }
+    if (burst) {
+      startY += 1.0;
+    }
+    
     group.position.set(x, startY, z);
-
     this.scene.add(group);
 
     const vx = burst ? (Math.random() - 0.5) * 3.5 : 0;
-    const vy = burst ? 2.8 + Math.random() * 1.5 : 0;
+    const vy = burst ? 2.8 + Math.random() * 1.5 : (buoyant ? 0 : -0.5);
     const vz = burst ? (Math.random() - 0.5) * 3.5 : 0;
 
     const id = `item_${Date.now()}_${Math.random()}`;
@@ -2113,28 +2135,63 @@ export class IslandThreeEngine {
       }
     }
 
-    // Update ground items physics (falling, bouncing on terrain)
+    // Update ground items physics (falling, bouncing on terrain, floating if buoyant)
     for (let i = this.worldObjects.groundItems.length - 1; i >= 0; i--) {
       const item = this.worldObjects.groundItems[i];
-      if (item.vy !== 0 || item.vx !== 0 || item.vz !== 0) {
-        item.vy -= 9.8 * delta;
-        item.x += item.vx * delta;
-        item.y += item.vy * delta;
-        item.z += item.vz * delta;
+      const isBuoyant = item.type === 'wood' || item.type === 'palm_shell' || item.type === 'live_fish_shell' || item.type === 'seed' || item.type === 'fiber' || item.type === 'rope' || item.type === 'fruit';
+      const groundY = this.getTerrainHeight(item.x, item.z) + 0.12;
 
-        const groundY = this.getTerrainHeight(item.x, item.z) + 0.12;
-        if (item.y <= groundY) {
-          item.y = groundY;
-          item.vy = -item.vy * 0.3; // bounce
-          item.vx *= 0.6;
-          item.vz *= 0.6;
-          if (Math.abs(item.vy) < 0.2) item.vy = 0;
-          if (Math.abs(item.vx) < 0.1) item.vx = 0;
-          if (Math.abs(item.vz) < 0.1) item.vz = 0;
+      if (isBuoyant && groundY < 0.0) {
+        // Floating on water surface with gentle wave bobbing
+        const waterSurfaceY = 0.04 + Math.sin(elapsed * 2.0 + item.x * 0.5 + item.z * 0.5) * 0.02;
+        if (item.y > waterSurfaceY) {
+          item.vy -= 9.8 * delta;
+          item.y += item.vy * delta;
+          if (item.y <= waterSurfaceY) {
+            item.y = waterSurfaceY;
+            item.vy = 0;
+          }
+        } else {
+          item.y = waterSurfaceY;
+          item.vy = 0;
         }
+        item.vx *= Math.pow(0.2, delta * 4);
+        item.vz *= Math.pow(0.2, delta * 4);
+        item.x += item.vx * delta;
+        item.z += item.vz * delta;
         item.group.position.set(item.x, item.y, item.z);
-        item.group.rotation.x += delta * 2;
-        item.group.rotation.y += delta * 3;
+        item.group.rotation.y += delta * 0.5;
+      } else {
+        // Heavy item or item on dry land: gravity pulls down to ground/seabed
+        if (item.y > groundY || Math.abs(item.vy) > 0.05 || Math.abs(item.vx) > 0.05 || Math.abs(item.vz) > 0.05) {
+          const inWater = item.y < 0.0;
+          const gravity = inWater ? 5.5 : 9.8;
+          const drag = inWater ? 0.85 : 0.98;
+
+          item.vy -= gravity * delta;
+          item.vx *= Math.pow(drag, delta * 30);
+          item.vz *= Math.pow(drag, delta * 30);
+
+          item.x += item.vx * delta;
+          item.y += item.vy * delta;
+          item.z += item.vz * delta;
+
+          if (item.y <= groundY) {
+            item.y = groundY;
+            item.vy = -item.vy * 0.25; // soft bounce
+            item.vx *= 0.5;
+            item.vz *= 0.5;
+            if (Math.abs(item.vy) < 0.15) item.vy = 0;
+            if (Math.abs(item.vx) < 0.05) item.vx = 0;
+            if (Math.abs(item.vz) < 0.05) item.vz = 0;
+          }
+          item.group.position.set(item.x, item.y, item.z);
+          item.group.rotation.x += delta * 1.5;
+          item.group.rotation.y += delta * 2.0;
+        } else {
+          item.y = groundY;
+          item.group.position.set(item.x, item.y, item.z);
+        }
       }
     }
 
@@ -2440,6 +2497,167 @@ export class IslandThreeEngine {
     this.renderer.dispose();
     if (this.container && this.renderer.domElement) {
       this.container.removeChild(this.renderer.domElement);
+    }
+  }
+
+  // --- PERSISTENT WORLD STATE MANAGEMENT ---
+  public saveWorldState() {
+    try {
+      const data = {
+        palmTrees: this.worldObjects.palmTrees.map((t) => ({ x: t.x, z: t.z, health: t.health, isChopped: t.isChopped })),
+        fallenLogs: this.worldObjects.fallenLogs.map((l) => ({ x: l.x, z: l.z, woodRemaining: l.woodRemaining })),
+        groundRocks: this.worldObjects.groundRocks.map((r) => ({ id: r.id, health: r.health, isPicked: r.isPicked })),
+        bushes: this.worldObjects.bushes.map((b) => ({ x: b.x, z: b.z, hasFiber: b.hasFiber })),
+        scallopBeds: this.worldObjects.scallopBeds.map((s) => ({ id: s.id, isCollected: s.isCollected, respawnTimer: s.respawnTimer })),
+        barnacleClusters: this.worldObjects.barnacleClusters.map((bc) => ({ id: bc.id, count: bc.count, isDepleted: bc.isDepleted, respawnTimer: bc.respawnTimer })),
+        seaGrassBeds: this.worldObjects.seaGrassBeds.map((sg) => ({ id: sg.id, hasGrass: sg.hasGrass, respawnTimer: sg.respawnTimer })),
+        kelpForest: this.worldObjects.kelpForest.map((kp) => ({ id: kp.id, hasKelp: kp.hasKelp, respawnTimer: kp.respawnTimer })),
+        placedTraps: this.worldObjects.placedTraps.map((tp) => ({ x: tp.x, z: tp.z, bait: tp.bait, caughtFish: tp.caughtFish })),
+        placedCraftingTables: this.worldObjects.placedCraftingTables.map((ct) => ({ x: ct.x, z: ct.z, rotY: ct.rotY })),
+        placedRafts: this.worldObjects.placedRafts.map((rf) => ({ x: rf.x, z: rf.z, rotY: rf.rotY, hasSail: rf.hasSail, isExpanded: rf.isExpanded, speed: rf.speed })),
+        structures: this.worldObjects.structures.map((st) => ({ type: st.type, x: st.x, y: st.y, z: st.z, rotY: st.rotY })),
+        plantedTrees: this.worldObjects.plantedTrees.map((pt) => ({ x: pt.x, z: pt.z, stage: pt.stage, plantedAt: pt.plantedAt, health: pt.health })),
+        groundItems: this.worldObjects.groundItems.map((gi) => ({ type: gi.type, x: gi.x, z: gi.z }))
+      };
+      localStorage.setItem('wtf_island_world_state_v2', JSON.stringify(data));
+    } catch {
+      // Ignore local storage quota limits
+    }
+  }
+
+  public loadWorldState() {
+    try {
+      const raw = localStorage.getItem('wtf_island_world_state_v2');
+      if (!raw) return;
+      const data = JSON.parse(raw);
+      if (!data) return;
+
+      if (Array.isArray(data.palmTrees)) {
+        data.palmTrees.forEach((savedTree: { x: number; z: number; health: number; isChopped: boolean }) => {
+          const tree = this.worldObjects.palmTrees.find((t) => Math.abs(t.x - savedTree.x) < 0.5 && Math.abs(t.z - savedTree.z) < 0.5);
+          if (tree) {
+            tree.health = savedTree.health;
+            tree.isChopped = savedTree.isChopped;
+            if (tree.isChopped) {
+              this.scene.remove(tree.group);
+            }
+          }
+        });
+      }
+
+      if (Array.isArray(data.fallenLogs)) {
+        data.fallenLogs.forEach((savedLog: { x: number; z: number; woodRemaining: number }) => {
+          const log = this.spawnFallenLog(savedLog.x, savedLog.z, 0);
+          log.woodRemaining = savedLog.woodRemaining;
+        });
+      }
+
+      if (Array.isArray(data.groundRocks)) {
+        data.groundRocks.forEach((savedRock: { id: string; health: number; isPicked: boolean }) => {
+          const rock = this.worldObjects.groundRocks.find((r) => r.id === savedRock.id);
+          if (rock) {
+            rock.health = savedRock.health;
+            rock.isPicked = savedRock.isPicked;
+            if (rock.isPicked) {
+              this.scene.remove(rock.mesh);
+            }
+          }
+        });
+      }
+
+      if (Array.isArray(data.bushes)) {
+        data.bushes.forEach((savedBush: { x: number; z: number; hasFiber: boolean }) => {
+          const bush = this.worldObjects.bushes.find((b) => Math.abs(b.x - savedBush.x) < 0.5 && Math.abs(b.z - savedBush.z) < 0.5);
+          if (bush) {
+            bush.hasFiber = savedBush.hasFiber;
+            if (!bush.hasFiber) {
+              bush.group.scale.set(0.6, 0.6, 0.6);
+            }
+          }
+        });
+      }
+
+      if (Array.isArray(data.scallopBeds)) {
+        data.scallopBeds.forEach((savedScallop: { id: string; isCollected: boolean; respawnTimer: number }) => {
+          const sc = this.worldObjects.scallopBeds.find((s) => s.id === savedScallop.id);
+          if (sc) {
+            sc.isCollected = savedScallop.isCollected;
+            sc.respawnTimer = savedScallop.respawnTimer;
+            if (sc.isCollected) sc.group.visible = false;
+          }
+        });
+      }
+
+      if (Array.isArray(data.barnacleClusters)) {
+        data.barnacleClusters.forEach((savedBarnacle: { id: string; count: number; isDepleted: boolean; respawnTimer: number }) => {
+          const bc = this.worldObjects.barnacleClusters.find((b) => b.id === savedBarnacle.id);
+          if (bc) {
+            bc.count = savedBarnacle.count;
+            bc.isDepleted = savedBarnacle.isDepleted;
+            bc.respawnTimer = savedBarnacle.respawnTimer;
+            for (let c = 0; c < bc.group.children.length; c++) {
+              bc.group.children[c].visible = c < bc.count;
+            }
+          }
+        });
+      }
+
+      if (Array.isArray(data.seaGrassBeds)) {
+        data.seaGrassBeds.forEach((savedSG: { id: string; hasGrass: boolean; respawnTimer: number }) => {
+          const sg = this.worldObjects.seaGrassBeds.find((s) => s.id === savedSG.id);
+          if (sg) {
+            sg.hasGrass = savedSG.hasGrass;
+            sg.respawnTimer = savedSG.respawnTimer;
+            if (!sg.hasGrass) sg.group.scale.set(0.2, 0.2, 0.2);
+          }
+        });
+      }
+
+      if (Array.isArray(data.kelpForest)) {
+        data.kelpForest.forEach((savedKelp: { id: string; hasKelp: boolean; respawnTimer: number }) => {
+          const kp = this.worldObjects.kelpForest.find((k) => k.id === savedKelp.id);
+          if (kp) {
+            kp.hasKelp = savedKelp.hasKelp;
+            kp.respawnTimer = savedKelp.respawnTimer;
+            if (!kp.hasKelp) kp.group.scale.set(0.3, 0.3, 0.3);
+          }
+        });
+      }
+
+      if (Array.isArray(data.placedTraps)) {
+        data.placedTraps.forEach((savedTrap: { x: number; z: number; bait: BaitType | null; caughtFish: Array<{ speciesId: string; sizeCm: number; caughtAt: number }> }) => {
+          const trap = this.placeFishTrap(savedTrap.x, savedTrap.z);
+          trap.bait = savedTrap.bait;
+          trap.caughtFish = savedTrap.caughtFish || [];
+          this.updateTrapVisuals(trap);
+        });
+      }
+
+      if (Array.isArray(data.placedCraftingTables)) {
+        data.placedCraftingTables.forEach((savedTable: { x: number; z: number; rotY: number }) => {
+          this.placeCraftingTable(savedTable.x, savedTable.z, savedTable.rotY);
+        });
+      }
+
+      if (Array.isArray(data.placedRafts)) {
+        data.placedRafts.forEach((savedRaft: { x: number; z: number; rotY: number; hasSail: boolean; isExpanded: boolean }) => {
+          this.placeRaft(savedRaft.x, savedRaft.z, savedRaft.hasSail, savedRaft.isExpanded);
+        });
+      }
+
+      if (Array.isArray(data.structures)) {
+        data.structures.forEach((savedStruct: { type: StructureType; x: number; y: number; z: number; rotY: number }) => {
+          this.placeStructure(savedStruct.type, savedStruct.x, savedStruct.y, savedStruct.z, savedStruct.rotY);
+        });
+      }
+
+      if (Array.isArray(data.groundItems)) {
+        data.groundItems.forEach((gi: { type: ToolType; x: number; z: number }) => {
+          this.spawnGroundItem(gi.type, gi.x, gi.z, false);
+        });
+      }
+    } catch {
+      // Ignore corrupted state
     }
   }
 }

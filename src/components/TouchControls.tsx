@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useRef, useState, useEffect } from 'react';
+import React, { useRef, useState, useEffect, useCallback } from 'react';
 import { ToolType } from '../types';
 
 interface TouchControlsProps {
@@ -16,6 +16,12 @@ interface TouchControlsProps {
   equippedTool: ToolType;
   onSneakToggle: () => void;
   isSneaking: boolean;
+  inWater?: boolean;
+  isSwimming?: boolean;
+  isDiving?: boolean;
+  promptText?: string | null;
+  onOpenInventory?: () => void;
+  rodState?: 'idle' | 'cast' | 'nibble' | 'hooked';
 }
 
 export const TouchControls: React.FC<TouchControlsProps> = ({
@@ -28,45 +34,95 @@ export const TouchControls: React.FC<TouchControlsProps> = ({
   equippedTool,
   onSneakToggle,
   isSneaking,
+  inWater = false,
+  isSwimming = false,
+  isDiving = false,
+  promptText = null,
+  onOpenInventory,
+  rodState = 'idle'
 }) => {
+  // Joystick State
   const joystickBaseRef = useRef<HTMLDivElement>(null);
   const [stickPos, setStickPos] = useState({ x: 0, y: 0 });
   const [isJoystickActive, setIsJoystickActive] = useState(false);
   const joystickTouchId = useRef<number | null>(null);
+  const joystickOrigin = useRef<{ x: number; y: number } | null>(null);
 
+  // Camera Look Touch State
   const lookTouchId = useRef<number | null>(null);
   const lastLookTouchPos = useRef<{ x: number; y: number } | null>(null);
 
-  // Joystick touch handlers with touch-identifier tracking & deadzone
-  const handleJoystickStart = (e: React.TouchEvent) => {
-    if (!joystickBaseRef.current) return;
+  // Reset all touch inputs safely
+  const resetAllTouchInputs = useCallback(() => {
+    joystickTouchId.current = null;
+    joystickOrigin.current = null;
+    lookTouchId.current = null;
+    lastLookTouchPos.current = null;
+    setIsJoystickActive(false);
+    setStickPos({ x: 0, y: 0 });
+    onMove(0, 0, false);
+  }, [onMove]);
+
+  // Window / App event listeners for input recovery
+  useEffect(() => {
+    const handleReset = () => resetAllTouchInputs();
+
+    window.addEventListener('blur', handleReset);
+    window.addEventListener('focus', handleReset);
+    document.addEventListener('visibilitychange', handleReset);
+    window.addEventListener('pagehide', handleReset);
+    window.addEventListener('orientationchange', handleReset);
+    window.addEventListener('resize', handleReset);
+
+    return () => {
+      window.removeEventListener('blur', handleReset);
+      window.removeEventListener('focus', handleReset);
+      document.removeEventListener('visibilitychange', handleReset);
+      window.removeEventListener('pagehide', handleReset);
+      window.removeEventListener('orientationchange', handleReset);
+      window.removeEventListener('resize', handleReset);
+    };
+  }, [resetAllTouchInputs]);
+
+  // ----------------------------------------------------
+  // LEFT SIDE: VIRTUAL JOYSTICK
+  // ----------------------------------------------------
+  const handleJoystickZoneStart = (e: React.TouchEvent) => {
+    if (joystickTouchId.current !== null) return;
     const touch = e.changedTouches[0];
     joystickTouchId.current = touch.identifier;
     setIsJoystickActive(true);
-    updateJoystick(touch.clientX, touch.clientY);
+
+    if (joystickBaseRef.current) {
+      const rect = joystickBaseRef.current.getBoundingClientRect();
+      const centerX = rect.left + rect.width / 2;
+      const centerY = rect.top + rect.height / 2;
+      joystickOrigin.current = { x: centerX, y: centerY };
+      updateJoystickFromPoint(touch.clientX, touch.clientY, centerX, centerY);
+    }
   };
 
-  const handleJoystickMove = (e: React.TouchEvent) => {
-    if (joystickTouchId.current === null || !joystickBaseRef.current) return;
+  const handleJoystickZoneMove = (e: React.TouchEvent) => {
+    if (joystickTouchId.current === null) return;
     for (let i = 0; i < e.changedTouches.length; i++) {
       const touch = e.changedTouches[i];
-      if (touch.identifier === joystickTouchId.current) {
-        updateJoystick(touch.clientX, touch.clientY);
+      if (touch.identifier === joystickTouchId.current && joystickOrigin.current) {
+        updateJoystickFromPoint(
+          touch.clientX,
+          touch.clientY,
+          joystickOrigin.current.x,
+          joystickOrigin.current.y
+        );
         break;
       }
     }
   };
 
-  const updateJoystick = (clientX: number, clientY: number) => {
-    if (!joystickBaseRef.current) return;
-    const rect = joystickBaseRef.current.getBoundingClientRect();
-    const centerX = rect.left + rect.width / 2;
-    const centerY = rect.top + rect.height / 2;
-
-    const dx = clientX - centerX;
-    const dy = clientY - centerY;
-    const maxRadius = 46;
-    const deadZone = 5;
+  const updateJoystickFromPoint = (clientX: number, clientY: number, originX: number, originY: number) => {
+    const dx = clientX - originX;
+    const dy = clientY - originY;
+    const maxRadius = 52; // Comfortable travel distance
+    const deadZone = 6;   // Resistant to accidental jitter
     const rawDist = Math.sqrt(dx * dx + dy * dy);
 
     if (rawDist < deadZone) {
@@ -80,24 +136,24 @@ export const TouchControls: React.FC<TouchControlsProps> = ({
 
     const stickX = Math.cos(angle) * dist;
     const stickY = Math.sin(angle) * dist;
-
     setStickPos({ x: stickX, y: stickY });
 
-    // Normalized smooth response
+    // Smooth normalized response curve: small nudge = slow sneak/walk, full push = run/sprint
     const effectiveDist = (dist - deadZone) / (maxRadius - deadZone);
-    const response = Math.min(1.0, Math.pow(effectiveDist, 1.15));
+    const response = Math.min(1.0, Math.pow(effectiveDist, 1.1));
     const normX = Math.cos(angle) * response;
     const normZ = Math.sin(angle) * response;
-    const isSprint = effectiveDist > 0.82;
+    const isSprint = effectiveDist > 0.80;
 
     onMove(normX, normZ, isSprint);
   };
 
-  const handleJoystickEnd = (e: React.TouchEvent) => {
+  const handleJoystickZoneEnd = (e: React.TouchEvent) => {
     if (joystickTouchId.current === null) return;
     for (let i = 0; i < e.changedTouches.length; i++) {
       if (e.changedTouches[i].identifier === joystickTouchId.current) {
         joystickTouchId.current = null;
+        joystickOrigin.current = null;
         setIsJoystickActive(false);
         setStickPos({ x: 0, y: 0 });
         onMove(0, 0, false);
@@ -106,31 +162,9 @@ export const TouchControls: React.FC<TouchControlsProps> = ({
     }
   };
 
-  // Reset touch positions on blur / focus / hide
-  useEffect(() => {
-    const handleReset = () => {
-      joystickTouchId.current = null;
-      lookTouchId.current = null;
-      setIsJoystickActive(false);
-      setStickPos({ x: 0, y: 0 });
-      lastLookTouchPos.current = null;
-      onMove(0, 0, false);
-    };
-
-    window.addEventListener('blur', handleReset);
-    window.addEventListener('focus', handleReset);
-    document.addEventListener('visibilitychange', handleReset);
-    window.addEventListener('pagehide', handleReset);
-
-    return () => {
-      window.removeEventListener('blur', handleReset);
-      window.removeEventListener('focus', handleReset);
-      document.removeEventListener('visibilitychange', handleReset);
-      window.removeEventListener('pagehide', handleReset);
-    };
-  }, [onMove]);
-
-  // Right touch pad for camera look with touch-identifier tracking & clamping
+  // ----------------------------------------------------
+  // RIGHT SIDE: CAMERA LOOK PAD
+  // ----------------------------------------------------
   const handleLookTouchStart = (e: React.TouchEvent) => {
     if (lookTouchId.current !== null) return;
     const touch = e.changedTouches[0];
@@ -145,9 +179,11 @@ export const TouchControls: React.FC<TouchControlsProps> = ({
       if (touch.identifier === lookTouchId.current) {
         const rawDx = touch.clientX - lastLookTouchPos.current.x;
         const rawDy = touch.clientY - lastLookTouchPos.current.y;
-        // Clamp extreme jumps between frames for smooth camera panning
-        const dx = Math.max(-50, Math.min(50, rawDx));
-        const dy = Math.max(-50, Math.min(50, rawDy));
+
+        // Clamp extreme jumps per frame for smooth panning
+        const dx = Math.max(-45, Math.min(45, rawDx));
+        const dy = Math.max(-45, Math.min(45, rawDy));
+
         lastLookTouchPos.current = { x: touch.clientX, y: touch.clientY };
         onLook(dx, dy);
         break;
@@ -166,129 +202,242 @@ export const TouchControls: React.FC<TouchControlsProps> = ({
     }
   };
 
+  // ----------------------------------------------------
+  // CONTEXTUAL TOOL & ACTION ICONS
+  // ----------------------------------------------------
   const canThrow = equippedTool === 'spear' || equippedTool === 'rock';
   const isBuilding = equippedTool === 'wood_structure';
 
-  const getToolActionIcon = () => {
+  const getToolActionMeta = () => {
+    if (rodState === 'cast') {
+      return { icon: '⏳', label: 'Waiting...' };
+    }
+    if (rodState === 'hooked') {
+      return { icon: '🎣', label: 'REEL!' };
+    }
+
     switch (equippedTool) {
-      case 'stone_axe': return '🪓';
-      case 'stone_pickaxe': return '⛏️';
-      case 'spear': return '🔱';
-      case 'wood_structure': return '🛖';
-      case 'chum': return '🐟';
+      case 'stone_axe':
+        return { icon: '🪓', label: 'Chop' };
+      case 'stone_pickaxe':
+        return { icon: '⛏️', label: 'Mine' };
+      case 'spear':
+        return { icon: '🔱', label: 'Thrust' };
+      case 'wood_structure':
+        return { icon: '🛖', label: 'Place' };
+      case 'chum':
+        return { icon: '🐟', label: 'Toss Chum' };
       case 'sea_grass':
-      case 'kelp': return '🌿';
-      case 'scallop': return '🦪';
-      case 'barnacle': return '🐚';
-      case 'fish_trap': return '🧺';
-      case 'crafting_table': return '🔨';
-      case 'simple_raft': return '⛵';
+      case 'kelp':
+        return { icon: '🌿', label: 'Drop Flora' };
+      case 'scallop':
+      case 'barnacle':
+        return { icon: '🦪', label: 'Place Shell' };
+      case 'fish_trap':
+        return { icon: '🧺', label: 'Set Trap' };
+      case 'crafting_table':
+        return { icon: '🔨', label: 'Place Table' };
+      case 'simple_raft':
+        return { icon: '⛵', label: 'Launch Raft' };
       case 'rock':
-      case 'stone': return '🪨';
-      case 'palm_shell': return '🥥';
-      case 'fruit': return '🥭';
-      case 'crab': return '🦀';
-      case 'seed': return '🌱';
-      default: return '⚡';
+      case 'stone':
+        return { icon: '🪨', label: 'Drop / Break' };
+      case 'palm_shell':
+        return { icon: '🥥', label: 'Scoop Fish' };
+      case 'live_fish_shell':
+        return { icon: '🐟', label: 'Release Fish' };
+      case 'fish_meat':
+        return { icon: '🥩', label: 'Drop Meat' };
+      case 'fruit':
+        return { icon: '🥭', label: 'Eat / Drop' };
+      case 'crab':
+        return { icon: '🦀', label: 'Place Crab' };
+      case 'seed':
+        return { icon: '🌱', label: 'Plant Palm' };
+      default:
+        return { icon: '⚡', label: 'Grab / Punch' };
     }
   };
 
+  const actionMeta = getToolActionMeta();
+
   return (
-    <div className="fixed inset-0 pointer-events-none z-30 flex justify-between select-none font-sans">
-      {/* Left side: Virtual Joystick */}
-      <div className="w-1/2 h-full relative flex items-end p-4 sm:p-6 pb-6">
+    <div className="fixed inset-0 pointer-events-none z-30 select-none font-sans overflow-hidden">
+      {/* 1. LEFT TOUCH REGION: Joystick Touch Capture (Bottom-Left quadrant) */}
+      <div
+        onTouchStart={handleJoystickZoneStart}
+        onTouchMove={handleJoystickZoneMove}
+        onTouchEnd={handleJoystickZoneEnd}
+        onTouchCancel={handleJoystickZoneEnd}
+        className="absolute left-0 bottom-0 w-[45vw] h-[55vh] pointer-events-auto flex items-end p-4 sm:p-8 pb-6 touch-none"
+      >
         <div
           ref={joystickBaseRef}
-          onTouchStart={handleJoystickStart}
-          onTouchMove={handleJoystickMove}
-          onTouchEnd={handleJoystickEnd}
-          onTouchCancel={handleJoystickEnd}
-          className={`w-28 h-28 sm:w-32 sm:h-32 rounded-full bg-white/90 backdrop-blur-md border-4 border-[#2D3436] pointer-events-auto flex items-center justify-center relative touch-none shadow-[4px_4px_0px_0px_#2D3436] transition-opacity ${
-            isJoystickActive ? 'opacity-100' : 'opacity-85'
+          className={`w-32 h-32 sm:w-36 sm:h-36 rounded-full bg-white/90 backdrop-blur-md border-4 border-[#2D3436] flex items-center justify-center relative touch-none shadow-[5px_5px_0px_0px_#2D3436] transition-opacity duration-150 ${
+            isJoystickActive ? 'opacity-100 scale-105' : 'opacity-80 scale-100'
           }`}
         >
-          {/* Inner stick */}
+          {/* Directional crosshair accents */}
+          <div className="absolute w-2 h-2 rounded-full bg-[#B2BEC3] top-2" />
+          <div className="absolute w-2 h-2 rounded-full bg-[#B2BEC3] bottom-2" />
+          <div className="absolute w-2 h-2 rounded-full bg-[#B2BEC3] left-2" />
+          <div className="absolute w-2 h-2 rounded-full bg-[#B2BEC3] right-2" />
+
+          {/* Inner stick with spring return */}
           <div
-            className="w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-[#FF7675] shadow-md border-3 border-[#2D3436] will-change-transform pointer-events-none"
+            className="w-14 h-14 sm:w-16 sm:h-16 rounded-full bg-[#FF7675] shadow-lg border-3 border-[#2D3436] will-change-transform pointer-events-none flex items-center justify-center text-white text-xs font-black"
             style={{
               transform: `translate(${stickPos.x}px, ${stickPos.y}px)`,
+              transition: isJoystickActive ? 'none' : 'transform 0.15s cubic-bezier(0.175, 0.885, 0.32, 1.275)'
             }}
-          />
+          >
+            🕹️
+          </div>
         </div>
       </div>
 
-      {/* Right side: Look Pad & Action buttons */}
+      {/* 2. RIGHT TOUCH REGION: Camera Look Pad (Behind action buttons) */}
       <div
         onTouchStart={handleLookTouchStart}
         onTouchMove={handleLookTouchMove}
         onTouchEnd={handleLookTouchEnd}
         onTouchCancel={handleLookTouchEnd}
-        className="w-1/2 h-full pointer-events-auto relative flex flex-col justify-end items-end p-4 sm:p-6 pb-6 gap-2.5 touch-none"
-      >
-        {/* Throw / Cycle Button if applicable */}
-        {canThrow && onThrow && (
+        className="absolute right-0 top-0 w-[55vw] h-full pointer-events-auto touch-none"
+      />
+
+      {/* 3. CONTEXTUAL ACTION BUTTONS (Thumb Arc on Bottom Right) */}
+      <div className="absolute right-3 sm:right-6 bottom-4 sm:bottom-6 pointer-events-none flex flex-col items-end gap-2.5 z-40">
+        {/* Contextual Interact Prompt Button (When near a harvestable tree, rock, crab, or raft) */}
+        {promptText && (
           <button
-            onClick={(e) => {
+            onTouchStart={(e) => {
               e.stopPropagation();
-              onThrow();
             }}
-            className="px-3.5 py-1.5 sm:px-4 sm:py-2 rounded-2xl bg-[#FF7675] text-white font-black text-xs border-3 border-[#2D3436] shadow-[3px_3px_0px_0px_#2D3436] active:translate-x-[2px] active:translate-y-[2px] pointer-events-auto cursor-pointer flex items-center gap-1.5 uppercase"
-          >
-            <span>🎯 Throw</span>
-          </button>
-        )}
-
-        {isBuilding && onCycleStructure && (
-          <button
-            onClick={(e) => {
+            onPointerDown={(e) => {
               e.stopPropagation();
-              onCycleStructure();
             }}
-            className="px-3.5 py-1.5 sm:px-4 sm:py-2 rounded-2xl bg-[#FFEAA7] text-[#2D3436] font-black text-xs border-3 border-[#2D3436] shadow-[3px_3px_0px_0px_#2D3436] active:translate-x-[2px] active:translate-y-[2px] pointer-events-auto cursor-pointer flex items-center gap-1.5 uppercase"
-          >
-            <span>🔄 Cycle Piece</span>
-          </button>
-        )}
-
-        {/* Primary Action Button & Jump */}
-        <div className="flex items-center gap-2.5 sm:gap-3">
-          {onJump && (
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                onJump();
-              }}
-              className="w-12 h-12 sm:w-13 sm:h-13 rounded-full bg-[#74B9FF] hover:bg-[#81ECEC] active:scale-95 text-[#2D3436] font-black shadow-[3px_3px_0px_0px_#2D3436] border-3 border-[#2D3436] flex items-center justify-center text-lg sm:text-xl cursor-pointer pointer-events-auto active:translate-x-[2px] active:translate-y-[2px]"
-              title="Jump / Swim Up"
-            >
-              🌊
-            </button>
-          )}
-
-          <button
             onClick={(e) => {
               e.stopPropagation();
               onAction();
             }}
-            className="w-16 h-16 sm:w-18 sm:h-18 rounded-full bg-[#FDCB6E] hover:bg-[#FFEAA7] active:scale-95 text-[#2D3436] font-black shadow-[4px_4px_0px_0px_#2D3436] border-3 sm:border-4 border-[#2D3436] flex items-center justify-center text-2xl sm:text-3xl cursor-pointer pointer-events-auto active:translate-x-[2px] active:translate-y-[2px]"
+            className="pointer-events-auto px-4 py-2.5 rounded-2xl bg-[#FFEAA7] hover:bg-[#FDCB6E] text-[#2D3436] font-black text-xs sm:text-sm border-4 border-[#2D3436] shadow-[4px_4px_0px_0px_#2D3436] active:translate-x-[2px] active:translate-y-[2px] active:shadow-[2px_2px_0px_0px_#2D3436] cursor-pointer flex items-center gap-2 animate-bounce uppercase tracking-wider"
           >
-            {getToolActionIcon()}
+            <span className="text-base">👋</span>
+            <span>INTERACT / HARVEST</span>
+          </button>
+        )}
+
+        {/* Secondary Action Row (Throw / Cycle Piece / Quick Backpack) */}
+        <div className="flex items-center gap-2">
+          {canThrow && onThrow && (
+            <button
+              onTouchStart={(e) => e.stopPropagation()}
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation();
+                onThrow();
+              }}
+              className="pointer-events-auto px-3.5 py-2 rounded-2xl bg-[#FF7675] text-white font-black text-xs border-3 border-[#2D3436] shadow-[3px_3px_0px_0px_#2D3436] active:translate-x-[2px] active:translate-y-[2px] active:shadow-[1px_1px_0px_0px_#2D3436] cursor-pointer flex items-center gap-1.5 uppercase"
+            >
+              <span>🎯 Throw</span>
+            </button>
+          )}
+
+          {isBuilding && onCycleStructure && (
+            <button
+              onTouchStart={(e) => e.stopPropagation()}
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation();
+                onCycleStructure();
+              }}
+              className="pointer-events-auto px-3.5 py-2 rounded-2xl bg-[#FFEAA7] text-[#2D3436] font-black text-xs border-3 border-[#2D3436] shadow-[3px_3px_0px_0px_#2D3436] active:translate-x-[2px] active:translate-y-[2px] active:shadow-[1px_1px_0px_0px_#2D3436] cursor-pointer flex items-center gap-1.5 uppercase"
+            >
+              <span>🔄 Piece</span>
+            </button>
+          )}
+
+          {onOpenInventory && (
+            <button
+              onTouchStart={(e) => e.stopPropagation()}
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation();
+                onOpenInventory();
+              }}
+              className="pointer-events-auto px-3.5 py-2 rounded-2xl bg-[#55EFC4] text-[#2D3436] font-black text-xs border-3 border-[#2D3436] shadow-[3px_3px_0px_0px_#2D3436] active:translate-x-[2px] active:translate-y-[2px] active:shadow-[1px_1px_0px_0px_#2D3436] cursor-pointer flex items-center gap-1.5 uppercase"
+            >
+              <span>🎒 Pack</span>
+            </button>
+          )}
+        </div>
+
+        {/* Primary Action & Jump/Surface Row */}
+        <div className="flex items-center gap-3">
+          {/* Jump (on land) OR Surface/Ascend (in water) */}
+          {onJump && (
+            <button
+              onTouchStart={(e) => e.stopPropagation()}
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation();
+                onJump();
+              }}
+              className="pointer-events-auto w-14 h-14 sm:w-16 sm:h-16 rounded-full bg-[#74B9FF] hover:bg-[#81ECEC] active:scale-95 text-[#2D3436] font-black shadow-[4px_4px_0px_0px_#2D3436] border-4 border-[#2D3436] flex flex-col items-center justify-center cursor-pointer active:translate-x-[2px] active:translate-y-[2px] active:shadow-[2px_2px_0px_0px_#2D3436]"
+              title={inWater || isSwimming ? 'Surface / Swim Up' : 'Jump'}
+            >
+              <span className="text-xl leading-none">{inWater || isSwimming ? '🌊' : '🦘'}</span>
+              <span className="text-[9px] font-black tracking-tight uppercase mt-0.5">
+                {inWater || isSwimming ? 'Surface' : 'Jump'}
+              </span>
+            </button>
+          )}
+
+          {/* Primary Tool / Action / Grab Button */}
+          <button
+            onTouchStart={(e) => e.stopPropagation()}
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation();
+              onAction();
+            }}
+            className={`pointer-events-auto w-20 h-20 sm:w-22 sm:h-22 rounded-full border-4 border-[#2D3436] flex flex-col items-center justify-center cursor-pointer shadow-[6px_6px_0px_0px_#2D3436] active:translate-x-[3px] active:translate-y-[3px] active:shadow-[2px_2px_0px_0px_#2D3436] active:scale-95 transition-all ${
+              rodState === 'hooked'
+                ? 'bg-[#FF7675] text-white animate-pulse'
+                : 'bg-[#FDCB6E] hover:bg-[#FFEAA7] text-[#2D3436]'
+            }`}
+          >
+            <span className="text-2xl sm:text-3xl leading-none">{actionMeta.icon}</span>
+            <span className="text-[10px] sm:text-[11px] font-black tracking-tight uppercase mt-1">
+              {actionMeta.label}
+            </span>
           </button>
         </div>
 
-        {/* Sneak / Dive Button */}
+        {/* Sneak (on land) OR Dive/Descend (in water) */}
         <button
+          onTouchStart={(e) => e.stopPropagation()}
+          onPointerDown={(e) => e.stopPropagation()}
           onClick={(e) => {
             e.stopPropagation();
             onSneakToggle();
           }}
-          className={`px-4 py-2 sm:px-5 sm:py-2.5 rounded-2xl text-xs font-black border-3 border-[#2D3436] transition-colors pointer-events-auto shadow-[3px_3px_0px_0px_#2D3436] active:translate-x-[2px] active:translate-y-[2px] ${
-            isSneaking
+          className={`pointer-events-auto px-4 py-2 sm:px-5 sm:py-2.5 rounded-2xl text-xs font-black border-3 border-[#2D3436] transition-colors shadow-[3px_3px_0px_0px_#2D3436] active:translate-x-[2px] active:translate-y-[2px] active:shadow-[1px_1px_0px_0px_#2D3436] flex items-center gap-1.5 uppercase ${
+            isSneaking || isDiving
               ? 'bg-[#55EFC4] text-[#2D3436]'
               : 'bg-white text-[#2D3436]'
           }`}
         >
-          {isSneaking ? '🤿 Diving' : '🚶 Sneak / Dive'}
+          <span>{inWater || isSwimming ? '🤿' : '🚶'}</span>
+          <span>
+            {inWater || isSwimming
+              ? isDiving
+                ? 'Diving (Descend)'
+                : 'Dive / Descend'
+              : isSneaking
+              ? 'Sneaking'
+              : 'Sneak'}
+          </span>
         </button>
       </div>
     </div>

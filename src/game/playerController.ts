@@ -50,6 +50,7 @@ export class PlayerController {
   // View & Camera
   public yaw: number = 0;
   public pitch: number = 0;
+  public characterFacingYaw: number = 0;
   public isThirdPerson: boolean = false;
   private cameraDistance: number = 3.8;
   private isDraggingMouse: boolean = false;
@@ -465,6 +466,23 @@ export class PlayerController {
       shell.rotation.x = Math.PI;
       shell.position.set(0, 0.1, 0);
       this.handToolGroup.add(shell);
+    } else if (tool === 'live_fish_shell') {
+      const shellMat = new THREE.MeshStandardMaterial({ color: '#92400e', roughness: 0.8, side: THREE.DoubleSide });
+      const shell = new THREE.Mesh(new THREE.SphereGeometry(0.18, 6, 4, 0, Math.PI * 2, 0, Math.PI * 0.55), shellMat);
+      shell.rotation.x = Math.PI;
+      shell.position.set(0, 0.1, 0);
+      this.handToolGroup.add(shell);
+      // Tiny swimming fish in shell
+      const fishMat = new THREE.MeshStandardMaterial({ color: '#38bdf8', roughness: 0.3 });
+      const miniFish = new THREE.Mesh(new THREE.ConeGeometry(0.04, 0.14, 5), fishMat);
+      miniFish.position.set(0, 0.12, 0);
+      miniFish.rotation.x = Math.PI / 2;
+      this.handToolGroup.add(miniFish);
+    } else if (tool === 'fish_meat') {
+      const meatMat = new THREE.MeshStandardMaterial({ color: '#f87171', roughness: 0.6 });
+      const meatChunk = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.08, 0.14), meatMat);
+      meatChunk.position.set(0, 0.1, 0);
+      this.handToolGroup.add(meatChunk);
     } else if (tool === 'crab') {
       const crabMat = new THREE.MeshStandardMaterial({ color: '#ea580c', roughness: 0.6 });
       const crab = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.08, 0.15), crabMat);
@@ -525,6 +543,19 @@ export class PlayerController {
     // If piloting raft, click does not swing on foot
     if (this.pilotingRaft) {
       this.disembarkRaft();
+      return;
+    }
+
+    // Release Live Fish from Palm Shell into water
+    if (this.equippedTool === 'live_fish_shell') {
+      const tossX = this.position.x + cameraDir.x * 1.5;
+      const tossZ = this.position.z + cameraDir.z * 1.5;
+      this.ecosystem.releaseLiveFish('clownfish', 20, tossX, tossZ);
+      sound.playSplashWater();
+      this.callbacks.onPickupItem('live_fish_shell', -1);
+      this.callbacks.onPickupItem('palm_shell', 1);
+      this.callbacks.onNotification('🐟 Released live fish safely back into the ocean! (Empty Palm Shell returned)');
+      this.setEquippedTool('palm_shell');
       return;
     }
 
@@ -955,6 +986,23 @@ export class PlayerController {
     if (closestFish) {
       const fish = closestFish as FishInstance;
 
+      // Realistic Handling Limits:
+      // Bare hands cannot grab large predators or sharks (>40cm)
+      if ((this.equippedTool === 'hands' || this.equippedTool === 'none') && (fish.sizeCm > 40 || fish.species.isLargePredator || fish.species.role === 'apex_predator' || fish.species.shape === 'shark' || fish.species.shape === 'hammerhead')) {
+        sound.playSplashWater();
+        this.ecosystem.spookFishInRadius(this.position.x, this.position.z, 4.0);
+        this.callbacks.onNotification(`⚠️ The ${fish.species.name} is too large and dangerous to grab bare-handed! Use a Spear.`);
+        return;
+      }
+
+      // Palm Shell container can only hold small live fish (<= 25cm)
+      if (this.equippedTool === 'palm_shell' && (fish.sizeCm > 25 || fish.species.isLargePredator || fish.species.role === 'apex_predator')) {
+        sound.playSplashWater();
+        this.ecosystem.spookFishInRadius(this.position.x, this.position.z, 3.5);
+        this.callbacks.onNotification(`⚠️ The ${fish.species.name} (${fish.sizeCm}cm) is too large to fit in a Palm Shell!`);
+        return;
+      }
+
       // Forgiving catch probability
       let isSuccess = false;
 
@@ -980,7 +1028,10 @@ export class PlayerController {
         this.ecosystem.telemetry.playerCatches++;
 
         if (this.equippedTool === 'palm_shell') {
-          this.callbacks.onNotification(`🐠 Captured live ${fish.species.name} in Palm Shell!`);
+          this.callbacks.onPickupItem('palm_shell', -1);
+          this.callbacks.onPickupItem('live_fish_shell', 1);
+          this.setEquippedTool('live_fish_shell');
+          this.callbacks.onNotification(`🐠 Captured live ${fish.species.name} in Palm Shell container!`);
         } else {
           this.callbacks.onNotification(`✨ Caught ${fish.species.name}! (${fish.sizeCm}cm)`);
         }
@@ -1252,6 +1303,7 @@ export class PlayerController {
       // Pin player position onto raft deck
       this.position.set(raft.x, 0.75, raft.z);
       this.yaw = raft.rotY;
+      this.characterFacingYaw = raft.rotY;
       this.velocity.set(0, 0, 0);
 
       this.callbacks.onWaterStateChange(true, 1.5, false, false, 100);
@@ -1259,12 +1311,13 @@ export class PlayerController {
       return;
     }
 
-    // Normal On-Foot / Swimming Player Movement
+    // Keyboard manual camera rotation helpers (Q and E if not piloting)
     if (!this.isInputLocked) {
       if (this.keys.turnLeft) this.yaw += 2.4 * delta;
       if (this.keys.turnRight) this.yaw -= 2.4 * delta;
     }
 
+    // 2. Camera-Relative Movement Vector
     const moveVector = new THREE.Vector3();
     if (!this.isInputLocked) {
       if (this.keys.forward) moveVector.z -= 1;
@@ -1273,7 +1326,7 @@ export class PlayerController {
       if (this.keys.right) moveVector.x += 1;
 
       // Virtual joystick touch inputs
-      if (Math.abs(this.touchMove.x) > 0.05 || Math.abs(this.touchMove.z) > 0.05) {
+      if (Math.abs(this.touchMove.x) > 0.04 || Math.abs(this.touchMove.z) > 0.04) {
         moveVector.x += this.touchMove.x;
         moveVector.z += this.touchMove.z;
       }
@@ -1308,9 +1361,12 @@ export class PlayerController {
 
     this.callbacks.onWaterStateChange(this.isWading, this.waterDepth, this.isSwimming, this.isDiving, this.airLevel);
 
+    let worldMove = new THREE.Vector3();
     if (moveVector.lengthSq() > 0 && !this.isInputLocked) {
+      const inputMagnitude = Math.min(1.0, moveVector.length());
       moveVector.normalize();
-      moveVector.applyAxisAngle(new THREE.Vector3(0, 1, 0), this.yaw);
+      // Rotate input by camera yaw so W is always camera-forward and A/D strafes relative to camera
+      worldMove = moveVector.clone().applyAxisAngle(new THREE.Vector3(0, 1, 0), this.yaw);
 
       let speed = 4.2;
       const isSprinting = this.keys.sprint || this.touchMove.isSprinting;
@@ -1330,37 +1386,54 @@ export class PlayerController {
         speed *= 0.68;
       }
 
-      this.velocity.x = moveVector.x * speed;
-      this.velocity.z = moveVector.z * speed;
+      this.velocity.x = worldMove.x * speed * inputMagnitude;
+      this.velocity.z = worldMove.z * speed * inputMagnitude;
+
+      // Immediate turning authority with smooth visual rotation
+      const targetFacing = Math.atan2(worldMove.x, worldMove.z) + Math.PI;
+      let diff = (targetFacing - this.characterFacingYaw) % (Math.PI * 2);
+      if (diff < -Math.PI) diff += Math.PI * 2;
+      if (diff > Math.PI) diff -= Math.PI * 2;
+      const turnSpeed = 20.0;
+      this.characterFacingYaw += diff * Math.min(1.0, turnSpeed * delta);
     } else {
       this.velocity.x = 0;
       this.velocity.z = 0;
     }
 
     if (this.isSwimming) {
-      // 3D Diving Pitch Control: When swimming forward and looking down/up, pitch tilts vertical movement
+      // 3D Diving & Swimming Depth Control
       const isMovingForward = (this.keys.forward || this.touchMove.z < -0.2) && !this.isInputLocked;
       const pitchVerticalFactor = isMovingForward ? -Math.sin(this.pitch) * 2.8 : 0;
 
       if (this.isSneaking) {
-        this.velocity.y = -2.4 + pitchVerticalFactor;
-      } else if (isMovingForward && this.pitch < -0.18) {
-        // Looking down while swimming dives beneath the surface!
+        // Active dive down
+        this.velocity.y = -2.8 + pitchVerticalFactor;
+      } else if (pitchVerticalFactor !== 0) {
         this.velocity.y = pitchVerticalFactor;
-      } else if (this.position.y < -0.2) {
-        // Underwater buoyant equilibrium or gentle rise unless diving
-        this.velocity.y = (this.velocity.y * 0.9) + (0.05 - this.position.y) * 0.8 + pitchVerticalFactor;
       } else {
-        const targetSwimY = 0.15;
-        this.velocity.y = (targetSwimY - this.position.y) * 3.0;
+        // Neutral Buoyancy: retain current depth cleanly underwater!
+        if (this.position.y < -0.15) {
+          this.velocity.y *= Math.pow(0.04, delta * 4.0);
+          if (Math.abs(this.velocity.y) < 0.02) this.velocity.y = 0;
+        } else {
+          // At surface: comfortably bob at sea level
+          const targetSwimY = 0.05;
+          this.velocity.y = (targetSwimY - this.position.y) * 4.0;
+        }
       }
     } else {
-      this.velocity.y -= 14 * delta;
+      this.velocity.y -= 15 * delta;
     }
 
     this.position.x += this.velocity.x * delta;
     this.position.y += this.velocity.y * delta;
     this.position.z += this.velocity.z * delta;
+
+    // Prevent swimming above water surface
+    if (this.isSwimming && this.position.y > 0.08) {
+      this.position.y = 0.08;
+    }
 
     const minHeightFromGround = this.isDiving ? 0.35 : (this.isSneaking ? 0.9 : 1.6);
     if (this.position.y <= terrainHeight + minHeightFromGround) {
@@ -1412,7 +1485,7 @@ export class PlayerController {
       this.engine.hideGhostStructure();
     }
 
-    this.updateCharacterVisuals(delta, moveVector);
+    this.updateCharacterVisuals(delta, worldMove);
   }
 
   private updateRodMinigame(delta: number) {
@@ -1457,20 +1530,24 @@ export class PlayerController {
     }
   }
 
-  private updateCharacterVisuals(delta: number, moveVector: THREE.Vector3) {
+  private updateCharacterVisuals(delta: number, worldMove: THREE.Vector3) {
     this.playerGroup.position.set(this.position.x, this.position.y - 1.6, this.position.z);
+    this.playerGroup.rotation.y = this.characterFacingYaw;
 
-    if (moveVector.lengthSq() > 0.01) {
-      const targetRotation = Math.atan2(-moveVector.z, moveVector.x) + Math.PI / 2;
-      this.playerGroup.rotation.y = targetRotation;
+    if (this.isSwimming) {
+      // Swimming tilt
+      this.playerGroup.rotation.x = 0.5;
+    } else {
+      this.playerGroup.rotation.x = 0;
+    }
 
-      const walkFreq = this.keys.sprint ? 14 : 8;
+    if (worldMove.lengthSq() > 0.01) {
+      const walkFreq = (this.keys.sprint || this.touchMove.isSprinting) ? 14 : 8;
       const legAngle = Math.sin(Date.now() * 0.008 * (walkFreq / 8)) * 0.65;
       this.legLeft.rotation.x = legAngle;
       this.legRight.rotation.x = -legAngle;
       this.armLeft.rotation.x = -legAngle * 0.7;
     } else {
-      this.playerGroup.rotation.y = this.yaw;
       this.legLeft.rotation.x = 0;
       this.legRight.rotation.x = 0;
       this.armLeft.rotation.x = 0;

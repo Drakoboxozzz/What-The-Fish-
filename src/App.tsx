@@ -4,7 +4,7 @@
  */
 
 import React, { useEffect, useRef, useState } from 'react';
-import { FISH_SPECIES } from './data/fishData';
+import { FISH_SPECIES, calculateFishMeatYield } from './data/fishData';
 import { CatchMethod, CaughtEvent, CraftingRecipe, FishRecord, ToolType, StructureType, GraphicsQuality } from './types';
 import { IslandThreeEngine } from './game/threeEngine';
 import { Ecosystem, FishInstance } from './game/ecosystem';
@@ -170,6 +170,9 @@ export default function App() {
   useEffect(() => {
     try {
       localStorage.setItem(STORAGE_KEY_INVENTORY, JSON.stringify(inventory));
+      if (engineRef.current) {
+        engineRef.current.saveWorldState();
+      }
     } catch {}
   }, [inventory]);
 
@@ -224,8 +227,15 @@ export default function App() {
       };
     });
 
-    // Also add fish resource to inventory
-    handleCollectItem('fish', 1);
+    // Also add fish resource & dynamic fish meat yield to inventory
+    if (method !== 'palm_shell') {
+      const meatYield = calculateFishMeatYield(species, sizeCm);
+      handleCollectItem('fish_meat', meatYield);
+      handleCollectItem('fish', 1);
+      showNotification(`🐟 Harvested ${meatYield} × Fish Meat from ${species.name} (${sizeCm}cm)!`);
+    } else {
+      handleCollectItem('fish', 1);
+    }
   };
 
   // Collect item handler
@@ -598,6 +608,12 @@ export default function App() {
             }
           }}
           isSneaking={isSneaking}
+          inWater={inWater}
+          isSwimming={isSwimming}
+          isDiving={isDiving}
+          promptText={notification?.message || null}
+          onOpenInventory={() => setIsInventoryOpen(true)}
+          rodState={rodState}
         />
       )}
 

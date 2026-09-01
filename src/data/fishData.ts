@@ -544,8 +544,8 @@ export const CRAFTING_RECIPES: CraftingRecipe[] = [
     resultCount: 2,
     icon: '🧪',
     station: 'pocket',
-    description: 'Mashed fish and fragrant sea grass bait. Throw or release into the water to create an attraction scent cloud that draws nearby fish, schools, and predators!',
-    requirements: { fish: 1, sea_grass: 1 }
+    description: 'Mashed fish meat and fragrant sea grass bait. Throw or release into the water to create an attraction scent cloud that draws nearby fish, schools, and predators!',
+    requirements: { fish_meat: 1, sea_grass: 1 }
   },
   {
     id: 'recipe_chum_shellfish',
@@ -640,4 +640,24 @@ export const CRAFTING_RECIPES: CraftingRecipe[] = [
     requirements: { wood: 2, fiber: 3 }
   }
 ];
+
+export function calculateFishMeatYield(species: FishSpecies, sizeCm: number): number {
+  if (species.role === 'apex_predator' || species.isLargePredator || sizeCm >= 120) {
+    // 8 to 16 meat for giant apex predators (Hammerhead, giant ray, massive GT)
+    const ratio = Math.min(1, Math.max(0, (sizeCm - 120) / Math.max(1, (species.maxSizeCm || 200) - 120)));
+    return Math.floor(8 + ratio * 8);
+  }
+  if (sizeCm >= 60) {
+    // 4 to 7 meat for large fish (Barracuda, Bonefish, juvenile shark)
+    const ratio = Math.min(1, Math.max(0, (sizeCm - 60) / 60));
+    return Math.floor(4 + ratio * 3);
+  }
+  if (sizeCm >= 25) {
+    // 2 to 4 meat for medium fish (Snapper, Flounder, Trout, Bass, Triggerfish)
+    const ratio = Math.min(1, Math.max(0, (sizeCm - 25) / 35));
+    return Math.floor(2 + ratio * 2);
+  }
+  // Small fish (< 25cm: Anthias, Sergeant Major, small Blue Tang, Butterflyfish) -> 1 to 2 meat
+  return sizeCm >= 16 ? 2 : 1;
+}
 

@@ -26,6 +26,7 @@ export type ToolType =
   | 'crab'
   | 'fruit'
   | 'fish'
+  | 'fish_meat'
   | 'scallop'
   | 'barnacle'
   | 'chum'
@@ -36,7 +37,7 @@ export type StructureType = 'foundation' | 'wall' | 'roof' | 'pillar';
 
 export type CatchMethod = 'spear' | 'hands' | 'trap' | 'palm_shell' | 'rod';
 
-export type BaitType = 'crab' | 'fruit' | 'fish' | 'scallop' | 'barnacle' | 'sea_grass' | 'kelp';
+export type BaitType = 'crab' | 'fruit' | 'fish' | 'fish_meat' | 'scallop' | 'barnacle' | 'sea_grass' | 'kelp';
 
 export type GraphicsQuality = 'low' | 'medium' | 'high' | 'desktop';
 
@@ -132,6 +133,7 @@ export interface CraftingRecipe {
     palm_shell?: number;
     crab?: number;
     fish?: number;
+    fish_meat?: number;
     scallop?: number;
     barnacle?: number;
     sea_grass?: number;
