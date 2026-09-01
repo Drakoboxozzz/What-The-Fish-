@@ -1,0 +1,6 @@
+{
+  "name": "What The Fish? - Desert Island",
+  "description": "A 3D open-world fish-catching and crafting game prototype featuring ARK-style tools, ballistics, structure placement, and a living shallow lagoon ecosystem.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
