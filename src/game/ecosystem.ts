@@ -150,6 +150,8 @@ export class Ecosystem {
     playerCatches: 0
   };
 
+  public onPlayerAttackedByPredator: ((predatorName: string, damage: number) => void) | null = null;
+
   private respawnCheckTimer: number = 0;
 
   // Coral shelters and underwater features
@@ -219,7 +221,7 @@ export class Ecosystem {
       } else if (species.id === 'atlantic_needlefish') {
         radius = 18 + Math.random() * 25; // Surface bays
       } else if (species.id === 'blacktip_pup' || species.id === 'bluefin_trevally') {
-        radius = 35 + Math.random() * 22; // Outer channels & deep patrol
+        radius = 48 + Math.random() * 26; // Outer channels & deep patrol
       } else if (
         species.id === 'spotted_trunkfish' ||
         species.id === 'blue_tang' ||
@@ -246,15 +248,25 @@ export class Ecosystem {
       let x = Math.cos(angle) * radius;
       let z = Math.sin(angle) * radius;
 
-      // Distance from player to avoid instant pop-in
-      if (awayFromPlayerX !== undefined && awayFromPlayerZ !== undefined) {
-        const distToPlayer = Math.sqrt(Math.pow(x - awayFromPlayerX, 2) + Math.pow(z - awayFromPlayerZ, 2));
-        if (distToPlayer < 14) continue;
-      }
+      // Distance from player to avoid instant pop-in or shallow spawn-camping
+      const px = awayFromPlayerX ?? 0;
+      const pz = awayFromPlayerZ ?? 10;
+      const distToPlayer = Math.sqrt(Math.pow(x - px, 2) + Math.pow(z - pz, 2));
+      const minPlayerDist = isApex ? 65 : (species.isPredator ? 40 : 14);
+      if (distToPlayer < minPlayerDist) continue;
 
       // Check terrain is underwater
       const groundY = this.engine.getTerrainHeight(x, z);
       if (groundY >= -0.2) continue;
+
+      // PREDATOR DEPTH DISTRIBUTION:
+      // Apex predators (hammerhead, sharks) strictly require deep offshore water (depth >= 4.0m, hammerhead >= 7.5m, radius >= 60m)
+      if (isApex && (groundY > -4.0 || radius < 60)) continue;
+      if (species.id === 'great_hammerhead' && groundY > -7.5) continue;
+
+      // Other predators (barracuda, trevally, kelp bass) require deep water (depth >= 2.0m)
+      const isPredator = species.isPredator || species.role === 'apex_predator' || species.role === 'mid_carnivore';
+      if (isPredator && groundY > -2.0) continue;
 
       // PREY SPAWN PROTECTION: Avoid spawning right next to hungry active predators
       if (isPrey && this.fishList.length > 0) {
@@ -949,8 +961,8 @@ export class Ecosystem {
 
     group.scale.set(scale, scale, scale);
 
-    // Pick spawn coordinates
-    const coords = this.pickHabitatCoordinates(species, initialSpawn ? undefined : playerX, initialSpawn ? undefined : playerZ);
+    // Pick spawn coordinates (passing player position so predators never spawn on top of player)
+    const coords = this.pickHabitatCoordinates(species, playerX ?? 0, playerZ ?? 10);
     const x = coords.x;
     const z = coords.z;
 
@@ -1553,10 +1565,24 @@ export class Ecosystem {
         
         // Check player in deep open water / trench
         const playerDistFromIslandCenter = Math.sqrt(playerX * playerX + playerZ * playerZ);
-        const inPredatorTerritory = playerDistFromIslandCenter > 50 || distToPlayer < 24;
+        // Predators only patrol deep water (outer reef edge > 52m or trench); shallows (<42m) are 100% safe
+        const isPlayerInShallows = playerDistFromIslandCenter < 44;
+        const inPredatorTerritory = !isPlayerInShallows && (playerDistFromIslandCenter > 52 || distToPlayer < 22);
 
-        // Player curiosity / bluff in deep water (does not trigger prey slaughter)
-        if (fish.species.isLargePredator && inPredatorTerritory && distToPlayer < 18 && fish.aggroCooldown <= 0) {
+        // If player retreated to shallows or moved away, immediately disengage and calm down
+        if (isPlayerInShallows && fish.predatorAggroLevel > 0) {
+          fish.predatorAggroLevel = 0;
+          fish.behaviorState = 'CALM';
+          fish.aggroCooldown = 18.0;
+        }
+
+        // Natural prey check: if natural prey is within 12m, predator always prefers hunting prey
+        const hasNearbyPrey = this.fishList.some(
+          (other) => other.id !== fish.id && !other.species.isPredator && Math.hypot(other.x - fish.x, other.z - fish.z) < 12
+        );
+
+        // Player curiosity / warning circling in deep water (only if no natural prey around)
+        if (fish.species.isLargePredator && inPredatorTerritory && !hasNearbyPrey && distToPlayer < 18 && fish.aggroCooldown <= 0) {
           if (fish.predatorAggroLevel === 0) {
             fish.predatorAggroLevel = 1;
             fish.behaviorState = 'HUNT';
@@ -1569,23 +1595,32 @@ export class Ecosystem {
         }
 
         if (fish.predatorAggroLevel === 1) {
-          // Circle player harmlessly at 8-10m radius
+          // Circle player harmlessly at 8-10m radius (warning / investigative cue)
           const circleSpeed = 0.8;
           const circleAngle = Date.now() * 0.001 * circleSpeed + (parseInt(fish.id.slice(-2), 36) || 0);
           fish.targetX = playerX + Math.cos(circleAngle) * 8.5;
           fish.targetZ = playerZ + Math.sin(circleAngle) * 8.5;
-          if (distToPlayer > 28) {
+          if (distToPlayer > 26 || isPlayerInShallows) {
             fish.predatorAggroLevel = 0;
             fish.behaviorState = 'CALM';
+            fish.aggroCooldown = 12.0;
           }
         } else if (fish.predatorAggroLevel === 2) {
-          // Make a swift pass within 2.5m then break away
+          // Make a swift investigative pass; deals a single bite if player doesn't move away
           fish.targetX = playerX + (Math.random() - 0.5) * 2;
           fish.targetZ = playerZ + (Math.random() - 0.5) * 2;
-          if (distToPlayer < 2.5) {
+          if (distToPlayer < 2.4) {
+            if (this.onPlayerAttackedByPredator) {
+              this.onPlayerAttackedByPredator(fish.species.name, 25);
+            }
+            // Disengage immediately: long cooldown and swim away into deep ocean
             fish.predatorAggroLevel = 0;
             fish.behaviorState = 'CALM';
-            fish.aggroCooldown = 10.0;
+            fish.aggroCooldown = 22.0;
+            const retreatDirX = fish.x !== 0 ? Math.sign(fish.x) : 1;
+            const retreatDirZ = fish.z !== 0 ? Math.sign(fish.z) : 1;
+            fish.targetX = fish.x + retreatDirX * 35;
+            fish.targetZ = fish.z + retreatDirZ * 35;
           }
         } else {
           // --- PREY TARGETING & HUNGER CYCLES ---
@@ -1693,8 +1728,13 @@ export class Ecosystem {
                   }
                 }
 
-                // If prey reaches dense cover and puts distance between itself and predator -> Escape!
-                if (prey.coverConcealment >= 0.75 && distToPrey > 1.8) {
+                // If prey reaches dense cover OR flees into shallow water refuge -> Escape!
+                const preyGroundY = this.engine.getTerrainHeight(prey.x, prey.z);
+                const preyInShallowRefuge = (fish.species.isLargePredator || fish.species.role === 'apex_predator')
+                  ? preyGroundY > -2.2
+                  : preyGroundY > -0.9;
+
+                if ((prey.coverConcealment >= 0.75 && distToPrey > 1.8) || (preyInShallowRefuge && distToPrey > 1.2)) {
                   fish.isHunting = false;
                   fish.lastPreyTargetId = prey.id;
                   fish.huntTargetFishId = null;
@@ -1828,11 +1868,26 @@ export class Ecosystem {
       // Keep within ocean water boundaries (strictly avoid getting beached on central island or protruding)
       const groundY = this.engine.getTerrainHeight(fish.x, fish.z);
       const isLargeApex = fish.species.isLargePredator || fish.species.role === 'apex_predator' || fish.sizeCm > 80;
+      const isPredatorFish = fish.species.isPredator || fish.species.role === 'apex_predator' || fish.species.role === 'mid_carnivore';
       
-      if (isLargeApex && (groundY > -1.8 || Math.sqrt(fish.x * fish.x + fish.z * fish.z) < 32)) {
+      if (isLargeApex && (groundY > -3.0 || Math.sqrt(fish.x * fish.x + fish.z * fish.z) < 45)) {
         const currentAngle = Math.atan2(fish.z, fish.x);
-        fish.targetX = Math.cos(currentAngle) * 75;
-        fish.targetZ = Math.sin(currentAngle) * 75;
+        fish.targetX = Math.cos(currentAngle) * 85;
+        fish.targetZ = Math.sin(currentAngle) * 85;
+        const centerDist = Math.sqrt(fish.x * fish.x + fish.z * fish.z);
+        if (centerDist > 0.1) {
+          fish.vx += (fish.x / centerDist) * 10.0 * delta;
+          fish.vz += (fish.z / centerDist) * 10.0 * delta;
+        }
+      } else if (isPredatorFish && (groundY > -1.5 || Math.sqrt(fish.x * fish.x + fish.z * fish.z) < 28)) {
+        const currentAngle = Math.atan2(fish.z, fish.x);
+        fish.targetX = Math.cos(currentAngle) * 60;
+        fish.targetZ = Math.sin(currentAngle) * 60;
+        const centerDist = Math.sqrt(fish.x * fish.x + fish.z * fish.z);
+        if (centerDist > 0.1) {
+          fish.vx += (fish.x / centerDist) * 8.0 * delta;
+          fish.vz += (fish.z / centerDist) * 8.0 * delta;
+        }
       } else if (groundY > -0.4) {
         const currentAngle = Math.atan2(fish.z, fish.x);
         fish.targetX = Math.cos(currentAngle) * 45;

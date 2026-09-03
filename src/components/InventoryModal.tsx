@@ -359,6 +359,23 @@ export const InventoryModal: React.FC<InventoryModalProps> = ({
 
   const currentCount = selectedKey ? inventory[selectedKey] || 0 : 0;
 
+  // Prevent ghost selection when item count reaches 0
+  useEffect(() => {
+    if (selectedKey && (inventory[selectedKey] || 0) <= 0) {
+      setSelectedSlotIndex(null);
+    }
+  }, [inventory, selectedKey]);
+
+  // Auto-assign selected item to first available (or slot 1) hotbar slot
+  const handleAutoAssignToHotbar = () => {
+    if (!selectedKey) return;
+    const nextHb = [...hotbarSlots];
+    let targetIdx = nextHb.findIndex((k) => !k || (inventory[k] || 0) <= 0);
+    if (targetIdx === -1) targetIdx = 0;
+    nextHb[targetIdx] = selectedKey;
+    onUpdateHotbarSlots(nextHb);
+  };
+
   // Move / Swap slot logic
   const handleSlotClick = (targetType: 'backpack' | 'hotbar', targetIdx: number) => {
     if (!selectedSlotIndex) {
@@ -664,8 +681,54 @@ export const InventoryModal: React.FC<InventoryModalProps> = ({
                 </div>
 
                 {/* Action Buttons Area */}
-                <div className="pt-3 border-t-3 border-[#DFE6E9] space-y-2">
-                  {/* Action 1: Equip in hand if tool or equippable */}
+                <div className="pt-3 border-t-3 border-[#DFE6E9] space-y-2.5">
+                  {/* Action 1: Quick Assign to Hotbar Slot (1-Tap for Mobile) */}
+                  <div className="bg-[#F8F9FA] p-2.5 rounded-xl border-2 border-[#DFE6E9]">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-[10px] font-black uppercase text-[#636E72] flex items-center gap-1">
+                        <Sparkles className="w-3.5 h-3.5 text-[#E17055]" /> Assign to Hotbar Slot:
+                      </span>
+                      <span className="text-[9px] text-[#636E72] font-black font-mono">Tap Slot [1 - 6]</span>
+                    </div>
+
+                    {/* Prominent Auto-Assign Button */}
+                    <button
+                      onClick={handleAutoAssignToHotbar}
+                      className="w-full mb-2.5 py-2.5 px-3 rounded-xl bg-[#FFEAA7] hover:bg-[#FDCB6E] text-[#2D3436] border-2 border-[#2D3436] font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 shadow-[2px_2px_0px_0px_#2D3436] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none cursor-pointer min-h-[44px]"
+                      title="Automatically place into first empty or next hotbar slot"
+                    >
+                      <Sparkles className="w-4 h-4 text-[#D63031]" />
+                      <span>Auto-Assign to Hotbar</span>
+                    </button>
+
+                    <div className="grid grid-cols-6 gap-1.5">
+                      {[0, 1, 2, 3, 4, 5].map((slotIdx) => (
+                        <button
+                          key={`quick_assign_${slotIdx}`}
+                          onClick={() => {
+                            if (selectedKey) {
+                              const nextHb = [...hotbarSlots];
+                              nextHb[slotIdx] = selectedKey;
+                              onUpdateHotbarSlots(nextHb);
+                            }
+                          }}
+                          className={`min-h-[44px] flex flex-col items-center justify-center font-mono font-black text-sm rounded-xl border-3 border-[#2D3436] transition-all cursor-pointer ${
+                            hotbarSlots[slotIdx] === selectedKey
+                              ? 'bg-[#55EFC4] text-[#2D3436] shadow-[2px_2px_0px_0px_#2D3436] scale-105'
+                              : 'bg-white hover:bg-[#FFEAA7] text-[#2D3436] shadow-[1px_1px_0px_0px_#2D3436]'
+                          }`}
+                          title={`Assign to Hotbar slot ${slotIdx + 1}`}
+                        >
+                          <span>{slotIdx + 1}</span>
+                          <span className="text-[8px] uppercase tracking-tighter opacity-70">
+                            {hotbarSlots[slotIdx] === selectedKey ? 'SET' : ''}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Action 2: Equip in hand if tool or equippable */}
                   {currentItem.isEquippable && currentItem.toolType && (
                     <button
                       onClick={() => {
@@ -693,7 +756,7 @@ export const InventoryModal: React.FC<InventoryModalProps> = ({
                     </button>
                   )}
 
-                  {/* Action 2: Eat / Consume if food */}
+                  {/* Action 3: Eat / Consume if food */}
                   {currentItem.isConsumable && (
                     <button
                       onClick={() => {
@@ -708,7 +771,7 @@ export const InventoryModal: React.FC<InventoryModalProps> = ({
                     </button>
                   )}
 
-                  {/* Action 3: Drop / Toss to Ground */}
+                  {/* Action 4: Drop / Toss to Ground */}
                   {onDropItem && currentCount > 0 && (
                     <div className="grid grid-cols-2 gap-2">
                       <button
@@ -746,10 +809,20 @@ export const InventoryModal: React.FC<InventoryModalProps> = ({
           </div>
         </div>
 
-        {/* Footer info bar */}
+        {/* Footer info bar with easy touch close button */}
         <div className="mt-4 pt-3 border-t-3 border-[#2D3436]/20 flex items-center justify-between text-[11px] font-black text-[#636E72] flex-wrap gap-2">
-          <span>Press <kbd className="px-1.5 py-0.5 bg-white border border-[#2D3436] rounded font-mono text-[#2D3436]">E</kbd> or <kbd className="px-1.5 py-0.5 bg-white border border-[#2D3436] rounded font-mono text-[#2D3436]">I</kbd> to toggle inventory</span>
-          <span>Hold hands empty: <button onClick={() => onSelectTool('hands')} className="underline font-black text-[#2D3436] cursor-pointer">Bare Hands</button></span>
+          <div className="flex items-center gap-2">
+            <span>Press <kbd className="px-1.5 py-0.5 bg-white border border-[#2D3436] rounded font-mono text-[#2D3436]">E</kbd> / <kbd className="px-1.5 py-0.5 bg-white border border-[#2D3436] rounded font-mono text-[#2D3436]">I</kbd> to close</span>
+            <span>•</span>
+            <button onClick={() => onSelectTool('hands')} className="underline font-black text-[#2D3436] cursor-pointer">Bare Hands</button>
+          </div>
+          <button
+            onClick={onClose}
+            className="px-4 py-2 rounded-xl bg-[#FF7675] hover:bg-[#D63031] text-white font-black text-xs uppercase tracking-wider flex items-center gap-1.5 border-2 border-[#2D3436] shadow-[2px_2px_0px_0px_#2D3436] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none cursor-pointer min-h-[40px]"
+          >
+            <X className="w-4 h-4 stroke-[3]" />
+            Close
+          </button>
         </div>
       </div>
     </div>

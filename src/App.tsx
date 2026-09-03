@@ -89,6 +89,12 @@ export default function App() {
   const [isGuideOpen, setIsGuideOpen] = useState<boolean>(false);
   const [latestCatchEvent, setLatestCatchEvent] = useState<CaughtEvent | null>(null);
 
+  // Player Health & Death States
+  const [health, setHealth] = useState<number>(100);
+  const [maxHealth, setMaxHealth] = useState<number>(100);
+  const [isDamageFlash, setIsDamageFlash] = useState<boolean>(false);
+  const [isDeathFading, setIsDeathFading] = useState<boolean>(false);
+
   // Rod state
   const [rodState, setRodState] = useState<{
     state: 'idle' | 'cast' | 'nibble' | 'hooked';
@@ -124,6 +130,11 @@ export default function App() {
       fruit: 0
     };
   });
+
+  const inventoryRef = useRef<Record<string, number>>(inventory);
+  useEffect(() => {
+    inventoryRef.current = inventory;
+  }, [inventory]);
 
   // Fishodex records for all species
   const [records, setRecords] = useState<Record<string, FishRecord>>(() => {
@@ -325,9 +336,17 @@ export default function App() {
 
   // Select hotbar tool
   const handleSelectTool = (tool: ToolType) => {
-    setEquippedTool(tool);
+    let targetTool = tool;
+    if (targetTool !== 'hands' && targetTool !== 'none') {
+      const available = inventoryRef.current[targetTool] || 0;
+      if (available <= 0) {
+        showNotification(`No ${targetTool.replace('_', ' ')} remaining!`);
+        targetTool = 'hands';
+      }
+    }
+    setEquippedTool(targetTool);
     if (controllerRef.current) {
-      controllerRef.current.setEquippedTool(tool);
+      controllerRef.current.setEquippedTool(targetTool);
     }
   };
 
@@ -409,9 +428,43 @@ export default function App() {
     const ecosystem = new Ecosystem(engine);
     ecosystemRef.current = ecosystem;
 
+    // Connect predator deep-water attack damage to player controller
+    ecosystem.onPlayerAttackedByPredator = (predatorName: string, damage: number) => {
+      controllerRef.current?.applyDamage(damage, predatorName);
+    };
+
     const controller = new PlayerController(engine, ecosystem, {
       onCatchFish: handleFishCaught,
       onPickupItem: handleCollectItem,
+      getAuthoritativeItemCount: (itemKey: string) => {
+        return inventoryRef.current[itemKey] || 0;
+      },
+      onConsumeAuthoritativeItem: (itemKey: string) => {
+        const current = inventoryRef.current[itemKey] || 0;
+        if (current <= 0) return false;
+        const newCount = current - 1;
+        // Synchronously update ref first to prevent any race condition or duplicate throw
+        inventoryRef.current = {
+          ...inventoryRef.current,
+          [itemKey]: newCount,
+        };
+        // Update React state
+        setInventory((prev) => ({
+          ...prev,
+          [itemKey]: Math.max(0, (prev[itemKey] || 0) - 1),
+        }));
+
+        if (newCount <= 0) {
+          setEquippedTool((curr) => (curr === itemKey ? 'hands' : curr));
+          if (controllerRef.current && controllerRef.current.equippedTool === itemKey) {
+            controllerRef.current.setEquippedTool('hands');
+          }
+        }
+        return true;
+      },
+      onToolChanged: (newTool: ToolType) => {
+        setEquippedTool(newTool);
+      },
       onNotification: showNotification,
       onBoundaryWarning: setBoundaryWarning,
       onWaterStateChange: (inW, depth, swimming, diving, air) => {
@@ -430,6 +483,52 @@ export default function App() {
       },
       onPlaceStructure: () => {
         handleCollectItem('wood_structure', -1);
+      },
+      onHealthChange: (h, maxH, wasDamaged) => {
+        setHealth(h);
+        setMaxHealth(maxH);
+        if (wasDamaged) {
+          setIsDamageFlash(true);
+          setTimeout(() => setIsDamageFlash(false), 350);
+        }
+      },
+      onPlayerDeath: (deathPos) => {
+        setIsDeathFading(true);
+        // Calculate dropped items: preserve equipped essential hands, drop loose materials/fish in a marker buoy
+        const currentInv = inventoryRef.current;
+        const droppedItems: Record<string, number> = {};
+        const retainedInv: Record<string, number> = { ...currentInv };
+
+        Object.entries(currentInv).forEach(([key, val]) => {
+          const count = Number(val) || 0;
+          if (count > 0 && key !== 'hands') {
+            const dropCount = Math.max(1, Math.ceil(count * 0.75));
+            droppedItems[key] = dropCount;
+            retainedInv[key] = count - dropCount;
+          }
+        });
+
+        if (Object.keys(droppedItems).length > 0) {
+          engine.spawnDroppedLootContainer(deathPos.x, deathPos.y, deathPos.z, droppedItems);
+        }
+
+        setInventory(retainedInv);
+        inventoryRef.current = retainedInv;
+
+        setTimeout(() => {
+          setIsDeathFading(false);
+          showNotification('Awoke on shore! A glowing buoy marks your lost knapsack.');
+        }, 1800);
+      },
+      onRecoverLoot: (items) => {
+        setInventory((prev) => {
+          const next = { ...prev };
+          Object.entries(items).forEach(([key, count]) => {
+            next[key] = (next[key] || 0) + count;
+          });
+          return next;
+        });
+        showNotification('Supplies recovered from marker buoy!');
       }
     });
     controllerRef.current = controller;
@@ -569,7 +668,27 @@ export default function App() {
           onOpenGuide={() => setIsGuideOpen(true)}
           rodState={rodState}
           totalFishCaughtCount={totalFishCaughtCount}
+          health={health}
+          maxHealth={maxHealth}
         />
+      )}
+
+      {/* DAMAGE FLASH EFFECT */}
+      {isDamageFlash && (
+        <div className="fixed inset-0 pointer-events-none z-50 border-[10px] sm:border-[20px] border-[#FF7675]/50 animate-pulse bg-red-900/10" />
+      )}
+
+      {/* DEATH BLACKOUT / RESPAWN FADE */}
+      {isDeathFading && (
+        <div className="fixed inset-0 z-50 bg-[#2D3436] flex flex-col items-center justify-center text-white p-6 select-none animate-in fade-in duration-300">
+          <div className="text-5xl mb-4 animate-bounce">🌊</div>
+          <h2 className="text-2xl sm:text-3xl font-black uppercase tracking-wider text-[#FF7675]">
+            WASHED ASHORE
+          </h2>
+          <p className="text-xs sm:text-sm font-bold text-[#DFE6E9] mt-2 text-center max-w-sm">
+            You were overwhelmed by the deep water, but safely washed onto the sanctuary beach. A luminous buoy marks your lost supplies!
+          </p>
+        </div>
       )}
 
       {/* MOBILE TOUCH CONTROLS */}

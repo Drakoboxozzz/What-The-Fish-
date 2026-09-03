@@ -4,7 +4,7 @@
  */
 
 import * as THREE from 'three';
-import { PlantedTree, PlacedTrap, StructureType, PlacedStructure, PlacedRaft, PlacedCraftingTable, GraphicsQuality, ToolType, BaitType } from '../types';
+import { PlantedTree, PlacedTrap, StructureType, PlacedStructure, PlacedRaft, PlacedCraftingTable, GraphicsQuality, ToolType, BaitType, DroppedLootContainer } from '../types';
 
 export interface ThrownProjectile {
   id: string;
@@ -42,6 +42,24 @@ export interface FallenLog {
   y: number;
   z: number;
   woodRemaining: number;
+}
+
+// Explicit physics classification: buoyant items float on water surface; rocks and heavy items sink
+export function isItemBuoyant(type: string): boolean {
+  return (
+    type === 'wood' ||
+    type === 'palm_shell' ||
+    type === 'live_fish_shell' ||
+    type === 'seed' ||
+    type === 'fiber' ||
+    type === 'rope' ||
+    type === 'fruit' ||
+    type === 'simple_raft' ||
+    type === 'raft_sail' ||
+    type === 'raft_expansion' ||
+    type === 'fish_trap' ||
+    type === 'wood_structure'
+  );
 }
 
 export interface ScallopItem {
@@ -187,6 +205,7 @@ export interface WorldObjects {
   projectiles: ThrownProjectile[];
   waterSplashes: WaterSplash[];
   rockSparks: RockHitSpark[];
+  droppedLootContainers: DroppedLootContainer[];
 }
 
 export class IslandThreeEngine {
@@ -271,7 +290,8 @@ export class IslandThreeEngine {
       chumClouds: [],
       projectiles: [],
       waterSplashes: [],
-      rockSparks: []
+      rockSparks: [],
+      droppedLootContainers: []
     };
 
     // Ghost structure preview container
@@ -1449,7 +1469,7 @@ export class IslandThreeEngine {
     group.add(mesh);
 
     const terrainY = this.getTerrainHeight(x, z);
-    const buoyant = type === 'wood' || type === 'palm_shell' || type === 'live_fish_shell' || type === 'seed' || type === 'fiber' || type === 'rope' || type === 'fruit';
+    const buoyant = isItemBuoyant(type);
     
     let startY = terrainY + 0.12;
     if (buoyant) {
@@ -2111,6 +2131,135 @@ export class IslandThreeEngine {
     return logData;
   }
 
+  // --- DROPPED LOOT CONTAINERS (Non-Horror Supply Recovery) ---
+  public spawnDroppedLootContainer(
+    x: number,
+    y: number,
+    z: number,
+    items: Record<string, number>,
+    saveState: boolean = true
+  ): DroppedLootContainer {
+    const group = new THREE.Group();
+    const terrainY = this.getTerrainHeight(x, z);
+    const groundY = terrainY + 0.24;
+    const isSubmerged = groundY < 0.0;
+
+    // Actual placement Y: on the seabed or ground
+    const bagY = isSubmerged ? groundY : y;
+
+    // 1. Sturdy Explorer Knapsack Mesh
+    const packMat = new THREE.MeshStandardMaterial({ color: '#4a3728', roughness: 0.8 });
+    const flapMat = new THREE.MeshStandardMaterial({ color: '#322316', roughness: 0.7 });
+    const strapMat = new THREE.MeshStandardMaterial({ color: '#d35400', roughness: 0.5 });
+    const bedrollMat = new THREE.MeshStandardMaterial({ color: '#27ae60', roughness: 0.9 });
+
+    // Main pack pouch
+    const packBody = new THREE.Mesh(new THREE.BoxGeometry(0.65, 0.48, 0.4), packMat);
+    packBody.castShadow = true;
+    group.add(packBody);
+
+    // Front pocket & top flap
+    const flap = new THREE.Mesh(new THREE.BoxGeometry(0.67, 0.16, 0.42), flapMat);
+    flap.position.y = 0.22;
+    group.add(flap);
+
+    // Leather Straps
+    const strapL = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.5, 0.42), strapMat);
+    strapL.position.x = -0.18;
+    group.add(strapL);
+    const strapR = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.5, 0.42), strapMat);
+    strapR.position.x = 0.18;
+    group.add(strapR);
+
+    // Bedroll tied to top
+    const bedroll = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.09, 0.68, 8), bedrollMat);
+    bedroll.rotation.z = Math.PI / 2;
+    bedroll.position.y = 0.34;
+    group.add(bedroll);
+
+    // Beacon glow light orb (Warm teal pulse beacon)
+    const beaconMat = new THREE.MeshStandardMaterial({
+      color: '#55EFC4',
+      emissive: '#00B894',
+      emissiveIntensity: 1.2,
+      roughness: 0.2
+    });
+    const beaconOrb = new THREE.Mesh(new THREE.SphereGeometry(0.12, 8, 8), beaconMat);
+    beaconOrb.position.y = 0.58;
+    group.add(beaconOrb);
+
+    let markerBuoy: THREE.Group | undefined;
+
+    // 2. If underwater, add a floating marine marker buoy connected by a tether
+    if (isSubmerged) {
+      markerBuoy = new THREE.Group();
+      markerBuoy.position.set(0, -bagY + 0.12, 0); // Position at water surface (y = 0.12)
+
+      // Orange and white striped buoy float
+      const buoyMatOrange = new THREE.MeshStandardMaterial({ color: '#e67e22', roughness: 0.4 });
+      const buoyMatWhite = new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.4 });
+      const buoyTop = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.24, 0.22, 12), buoyMatOrange);
+      const buoyBot = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.24, 0.22, 12), buoyMatWhite);
+      buoyBot.position.y = -0.22;
+      markerBuoy.add(buoyTop);
+      markerBuoy.add(buoyBot);
+
+      // Flag mast
+      const mastMat = new THREE.MeshStandardMaterial({ color: '#2d3436' });
+      const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.6, 6), mastMat);
+      mast.position.y = 0.32;
+      markerBuoy.add(mast);
+
+      // Fluorescent rescue flag
+      const flagMat = new THREE.MeshBasicMaterial({ color: '#ff7675' });
+      const flag = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.18, 0.02), flagMat);
+      flag.position.set(0.15, 0.5, 0);
+      markerBuoy.add(flag);
+
+      // Mooring rope from seabed pack to surface float
+      const ropeHeight = Math.max(0.5, -bagY);
+      const ropeGeom = new THREE.CylinderGeometry(0.015, 0.015, ropeHeight, 4);
+      const ropeMat = new THREE.MeshBasicMaterial({ color: '#dfe6e9' });
+      const rope = new THREE.Mesh(ropeGeom, ropeMat);
+      rope.position.y = ropeHeight / 2;
+      group.add(rope);
+
+      group.add(markerBuoy);
+    }
+
+    group.position.set(x, bagY, z);
+    this.scene.add(group);
+
+    const containerData: DroppedLootContainer = {
+      id: `loot_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
+      group,
+      x,
+      y: bagY,
+      z,
+      items,
+      createdAt: Date.now(),
+      markerMesh: markerBuoy
+    };
+
+    this.worldObjects.droppedLootContainers.push(containerData);
+
+    if (saveState) {
+      this.saveWorldState();
+    }
+
+    return containerData;
+  }
+
+  public removeDroppedLootContainer(id: string) {
+    const idx = this.worldObjects.droppedLootContainers.findIndex((c) => c.id === id);
+    if (idx !== -1) {
+      const container = this.worldObjects.droppedLootContainers[idx];
+      this.scene.remove(container.group);
+      this.worldObjects.droppedLootContainers.splice(idx, 1);
+      this.saveWorldState();
+    }
+  }
+
   // --- UPDATE LOOP ---
   public update(delta: number) {
     const elapsed = this.clock.getElapsedTime();
@@ -2126,7 +2275,12 @@ export class IslandThreeEngine {
       // Gentle ocean bobbing
       const bob = Math.sin(elapsed * 1.8 + raft.x * 0.2 + raft.z * 0.2) * 0.035;
       const rockRoll = Math.cos(elapsed * 1.4 + raft.x * 0.1) * 0.03;
-      raft.group.position.y = 0.06 + bob;
+      const terrainY = this.getTerrainHeight(raft.x, raft.z);
+      // Buoyancy: Water surface is at y = 0.0. Raft floats at sea level 0.06 + bob.
+      // If pulled onto shallow shore or sandbank, it sits on sand (terrainY + 0.12), never sinking or clipping into ground!
+      const targetY = Math.max(0.06, terrainY + 0.12) + bob;
+      raft.y = targetY;
+      raft.group.position.set(raft.x, targetY, raft.z);
       raft.group.rotation.z = rockRoll;
 
       if (raft.sailMesh) {
@@ -2138,7 +2292,7 @@ export class IslandThreeEngine {
     // Update ground items physics (falling, bouncing on terrain, floating if buoyant)
     for (let i = this.worldObjects.groundItems.length - 1; i >= 0; i--) {
       const item = this.worldObjects.groundItems[i];
-      const isBuoyant = item.type === 'wood' || item.type === 'palm_shell' || item.type === 'live_fish_shell' || item.type === 'seed' || item.type === 'fiber' || item.type === 'rope' || item.type === 'fruit';
+      const isBuoyant = isItemBuoyant(item.type);
       const groundY = this.getTerrainHeight(item.x, item.z) + 0.12;
 
       if (isBuoyant && groundY < 0.0) {
@@ -2236,7 +2390,7 @@ export class IslandThreeEngine {
         proj.hasHitGround = true;
         this.scene.remove(proj.group);
         this.worldObjects.projectiles.splice(p, 1);
-        this.spawnGroundItem(proj.type === 'spear' ? 'spear' : 'stone', proj.x, proj.z, false);
+        this.spawnGroundItem(proj.type === 'spear' ? 'spear' : (proj.type === 'rock' ? 'rock' : 'stone'), proj.x, proj.z, false);
       } else if (proj.lifeTime > 8) {
         this.scene.remove(proj.group);
         this.worldObjects.projectiles.splice(p, 1);
@@ -2282,6 +2436,17 @@ export class IslandThreeEngine {
       if (spark.life <= 0) {
         this.scene.remove(spark.group);
         this.worldObjects.rockSparks.splice(k, 1);
+      }
+    }
+
+    // Animate Dropped Loot Containers (Buoy wave bobbing & beacon light pulse)
+    for (let l = 0; l < this.worldObjects.droppedLootContainers.length; l++) {
+      const loot = this.worldObjects.droppedLootContainers[l];
+      if (loot.markerMesh) {
+        const buoyBob = Math.sin(elapsed * 2.2 + loot.x * 0.3) * 0.04;
+        const buoyTilt = Math.cos(elapsed * 1.8 + loot.z * 0.3) * 0.08;
+        loot.markerMesh.position.y = -loot.y + 0.12 + buoyBob;
+        loot.markerMesh.rotation.z = buoyTilt;
       }
     }
 
@@ -2517,7 +2682,8 @@ export class IslandThreeEngine {
         placedRafts: this.worldObjects.placedRafts.map((rf) => ({ x: rf.x, z: rf.z, rotY: rf.rotY, hasSail: rf.hasSail, isExpanded: rf.isExpanded, speed: rf.speed })),
         structures: this.worldObjects.structures.map((st) => ({ type: st.type, x: st.x, y: st.y, z: st.z, rotY: st.rotY })),
         plantedTrees: this.worldObjects.plantedTrees.map((pt) => ({ x: pt.x, z: pt.z, stage: pt.stage, plantedAt: pt.plantedAt, health: pt.health })),
-        groundItems: this.worldObjects.groundItems.map((gi) => ({ type: gi.type, x: gi.x, z: gi.z }))
+        groundItems: this.worldObjects.groundItems.map((gi) => ({ type: gi.type, x: gi.x, z: gi.z })),
+        droppedLootContainers: this.worldObjects.droppedLootContainers.map((dl) => ({ id: dl.id, x: dl.x, y: dl.y, z: dl.z, items: dl.items, createdAt: dl.createdAt }))
       };
       localStorage.setItem('wtf_island_world_state_v2', JSON.stringify(data));
     } catch {
@@ -2654,6 +2820,12 @@ export class IslandThreeEngine {
       if (Array.isArray(data.groundItems)) {
         data.groundItems.forEach((gi: { type: ToolType; x: number; z: number }) => {
           this.spawnGroundItem(gi.type, gi.x, gi.z, false);
+        });
+      }
+
+      if (Array.isArray(data.droppedLootContainers)) {
+        data.droppedLootContainers.forEach((savedLoot: { id: string; x: number; y: number; z: number; items: Record<string, number> }) => {
+          this.spawnDroppedLootContainer(savedLoot.x, savedLoot.y, savedLoot.z, savedLoot.items, false);
         });
       }
     } catch {

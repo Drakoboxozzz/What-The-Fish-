@@ -39,7 +39,9 @@ interface HUDProps {
     state: 'idle' | 'cast' | 'nibble' | 'hooked';
     tension: number;
   };
-  totalFishCaughtCount: number;
+  totalFishCaughtCount?: number;
+  health: number;
+  maxHealth: number;
 }
 
 export const HUD: React.FC<HUDProps> = ({
@@ -70,31 +72,41 @@ export const HUD: React.FC<HUDProps> = ({
   onOpenCrafting,
   onOpenGuide,
   rodState,
-  totalFishCaughtCount,
+  health,
+  maxHealth,
 }) => {
   return (
-    <div className="fixed inset-0 pointer-events-none z-20 flex flex-col justify-between p-3 sm:p-4 md:p-6 select-none font-sans">
+    <div className="fixed inset-0 pointer-events-none z-30 flex flex-col justify-between p-3 sm:p-4 md:p-6 select-none font-sans">
       {/* TOP BAR */}
       <div className="flex items-start justify-between gap-2 sm:gap-4">
-        {/* Title / Mini Info */}
+        {/* Title / Mini Info & Player Health */}
         <div
           onTouchStart={(e) => e.stopPropagation()}
           onPointerDown={(e) => e.stopPropagation()}
           className="bg-white/95 text-[#2D3436] border-3 sm:border-4 border-[#2D3436] rounded-2xl sm:rounded-3xl p-2 sm:p-3 shadow-[4px_4px_0px_0px_#2D3436] sm:shadow-[6px_6px_0px_0px_#2D3436] flex items-center gap-2 sm:gap-3 pointer-events-auto"
         >
           <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl sm:rounded-2xl bg-[#FF7675] border-2 border-[#2D3436] flex items-center justify-center text-white font-black text-base sm:text-lg shadow-[2px_2px_0px_0px_#2D3436]">
-            🐟
+            {health > 40 ? '❤️' : '💔'}
           </div>
           <div>
             <div className="flex items-center gap-1.5 sm:gap-2">
-              <h1 className="text-[10px] sm:text-xs font-black tracking-tight uppercase text-[#2D3436]">WHAT THE FISH?</h1>
+              <h1 className="text-[10px] sm:text-xs font-black tracking-tight uppercase text-[#2D3436]">ISLAND EXPLORER</h1>
               <span className="hidden sm:inline bg-[#55EFC4] text-[#00B894] border-2 border-[#2D3436] px-1.5 py-0.5 rounded-md text-[8px] sm:text-[9px] font-black tracking-wider uppercase">
-                LAGOON
+                HEALTH
               </span>
             </div>
-            <div className="flex items-center gap-1.5 mt-0.5">
-              <span className="text-[10px] sm:text-xs font-black uppercase text-[#2D3436] tracking-tight">
-                Discovered: <strong className="text-[#FF7675]">{totalFishCaughtCount}</strong> / 16
+            {/* Player Health Bar */}
+            <div className="flex items-center gap-1.5 mt-1">
+              <div className="w-24 sm:w-32 h-3.5 sm:h-4 bg-[#DFE6E9] rounded-full border-2 border-[#2D3436] overflow-hidden">
+                <div
+                  className={`h-full transition-all duration-200 ${
+                    health > 50 ? 'bg-[#FF7675]' : health > 25 ? 'bg-[#FDCB6E]' : 'bg-[#D63031] animate-pulse'
+                  }`}
+                  style={{ width: `${Math.max(0, Math.min(100, (health / maxHealth) * 100))}%` }}
+                />
+              </div>
+              <span className="text-[10px] sm:text-xs font-mono font-black text-[#2D3436]">
+                {Math.round(health)}/{maxHealth}
               </span>
             </div>
           </div>
@@ -111,11 +123,11 @@ export const HUD: React.FC<HUDProps> = ({
             onTouchStart={(e) => e.stopPropagation()}
             onPointerDown={(e) => e.stopPropagation()}
             onClick={onOpenInventory}
-            className="px-2.5 sm:px-4 py-2 sm:py-2.5 rounded-xl sm:rounded-2xl bg-[#55EFC4] hover:bg-[#A8E6CF] text-[#2D3436] border-3 sm:border-4 border-[#2D3436] text-[11px] sm:text-xs font-black shadow-[3px_3px_0px_0px_#2D3436] sm:shadow-[4px_4px_0px_0px_#2D3436] active:translate-x-[2px] active:translate-y-[2px] flex items-center gap-1.5 sm:gap-2 transition-all cursor-pointer"
+            className="px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl sm:rounded-2xl bg-[#55EFC4] hover:bg-[#A8E6CF] text-[#2D3436] border-3 sm:border-4 border-[#2D3436] text-xs font-black shadow-[3px_3px_0px_0px_#2D3436] sm:shadow-[4px_4px_0px_0px_#2D3436] active:translate-x-[2px] active:translate-y-[2px] flex items-center gap-1.5 sm:gap-2 transition-all cursor-pointer min-h-[38px] sm:min-h-[44px]"
             title="Open Backpack / Inventory (Key: E or I)"
           >
-            <span className="text-xs sm:text-sm">🎒</span>
-            <span className="uppercase tracking-wider hidden sm:inline">Pack</span>
+            <span className="text-sm">🎒</span>
+            <span className="uppercase tracking-wider">Pack</span>
             <kbd className="text-[9px] sm:text-[10px] bg-white text-[#2D3436] px-1 sm:px-1.5 py-0.5 rounded border border-[#2D3436] font-mono hidden sm:inline">E</kbd>
           </button>
 
@@ -327,7 +339,7 @@ export const HUD: React.FC<HUDProps> = ({
         <div
           onTouchStart={(e) => e.stopPropagation()}
           onPointerDown={(e) => e.stopPropagation()}
-          className="bg-white/95 border-3 sm:border-4 border-[#2D3436] rounded-2xl sm:rounded-3xl p-1.5 sm:p-2 shadow-[5px_5px_0px_0px_#2D3436] flex items-center gap-1.5 sm:gap-2 pointer-events-auto overflow-x-auto max-w-full"
+          className="relative z-40 bg-white/95 border-3 sm:border-4 border-[#2D3436] rounded-2xl sm:rounded-3xl p-1.5 sm:p-2 shadow-[5px_5px_0px_0px_#2D3436] flex items-center gap-1.5 sm:gap-2 pointer-events-auto overflow-x-auto max-w-full"
         >
           {hotbarSlots.map((itemKey, index) => {
             const meta = itemKey ? ITEM_DATABASE[itemKey] : null;
@@ -347,18 +359,18 @@ export const HUD: React.FC<HUDProps> = ({
                     onSelectTool('hands');
                   }
                 }}
-                className={`relative rounded-xl sm:rounded-2xl transition-all flex flex-col items-center justify-center cursor-pointer select-none ${
+                className={`relative rounded-xl sm:rounded-2xl transition-all flex flex-col items-center justify-center cursor-pointer select-none min-w-[48px] ${
                   itemKey
                     ? isEquipped
-                      ? 'w-12 h-14 sm:w-15 sm:h-17 bg-[#FF7675] text-white border-3 sm:border-4 border-[#2D3436] shadow-[3px_3px_0px_0px_#2D3436] -translate-y-1 scale-105'
-                      : 'w-11 h-13 sm:w-14 sm:h-16 bg-white text-[#2D3436] hover:bg-[#FFEAA7] border-2 sm:border-3 border-[#2D3436] shadow-[2px_2px_0px_0px_#2D3436]'
-                    : 'w-11 h-13 sm:w-14 sm:h-16 bg-[#DFE6E9]/40 border-2 border-dashed border-[#B2BEC3] text-[#B2BEC3]'
+                      ? 'w-13 h-15 sm:w-16 sm:h-18 bg-[#FF7675] text-white border-3 sm:border-4 border-[#2D3436] shadow-[3px_3px_0px_0px_#2D3436] -translate-y-1 scale-105'
+                      : 'w-12 h-14 sm:w-15 sm:h-17 bg-white text-[#2D3436] hover:bg-[#FFEAA7] border-2 sm:border-3 border-[#2D3436] shadow-[2px_2px_0px_0px_#2D3436]'
+                    : 'w-12 h-14 sm:w-15 sm:h-17 bg-[#DFE6E9]/40 border-2 border-dashed border-[#B2BEC3] text-[#B2BEC3]'
                 }`}
               >
                 {itemKey && meta ? (
                   <>
-                    <span className="text-lg sm:text-2xl leading-none">{meta.icon}</span>
-                    <span className={`text-[7px] sm:text-[9px] font-black uppercase truncate max-w-[44px] sm:max-w-[52px] mt-0.5 ${isEquipped ? 'text-white' : 'text-[#2D3436]'}`}>
+                    <span className="text-xl sm:text-2xl leading-none">{meta.icon}</span>
+                    <span className={`text-[8px] sm:text-[9px] font-black uppercase truncate max-w-[46px] sm:max-w-[54px] mt-0.5 ${isEquipped ? 'text-white' : 'text-[#2D3436]'}`}>
                       {meta.name}
                     </span>
                     <span className={`absolute top-0.5 right-1 text-[7px] sm:text-[8px] font-black font-mono ${isEquipped ? 'text-white' : 'text-[#636E72]'}`}>
@@ -366,13 +378,13 @@ export const HUD: React.FC<HUDProps> = ({
                     </span>
 
                     {count > 0 && itemKey !== 'hands' && (
-                      <span className="absolute -bottom-1 -right-1 bg-[#FDCB6E] text-[#2D3436] border-2 border-[#2D3436] text-[7px] sm:text-[8px] font-black px-1 rounded-full shadow-[1px_1px_0px_0px_#2D3436]">
+                      <span className="absolute -bottom-1 -right-1 bg-[#FDCB6E] text-[#2D3436] border-2 border-[#2D3436] text-[8px] sm:text-[9px] font-black px-1 rounded-full shadow-[1px_1px_0px_0px_#2D3436]">
                         {count}
                       </span>
                     )}
                   </>
                 ) : (
-                  <span className="text-[10px] font-mono font-bold">[{keyLabel}]</span>
+                  <span className="text-[11px] font-mono font-bold">[{keyLabel}]</span>
                 )}
               </button>
             );

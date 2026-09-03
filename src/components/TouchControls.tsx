@@ -180,12 +180,9 @@ export const TouchControls: React.FC<TouchControlsProps> = ({
         const rawDx = touch.clientX - lastLookTouchPos.current.x;
         const rawDy = touch.clientY - lastLookTouchPos.current.y;
 
-        // Clamp extreme jumps per frame for smooth panning
-        const dx = Math.max(-45, Math.min(45, rawDx));
-        const dy = Math.max(-45, Math.min(45, rawDy));
-
+        // Smooth 1:1 camera rotation without artificial clamping lag
         lastLookTouchPos.current = { x: touch.clientX, y: touch.clientY };
-        onLook(dx, dy);
+        onLook(rawDx, rawDy);
         break;
       }
     }
@@ -269,11 +266,11 @@ export const TouchControls: React.FC<TouchControlsProps> = ({
         onTouchMove={handleJoystickZoneMove}
         onTouchEnd={handleJoystickZoneEnd}
         onTouchCancel={handleJoystickZoneEnd}
-        className="absolute left-0 bottom-0 w-[45vw] h-[55vh] pointer-events-auto flex items-end p-4 sm:p-8 pb-6 touch-none"
+        className="absolute left-0 bottom-0 w-[38vw] max-w-[210px] h-[48vh] pointer-events-auto flex items-end p-3 sm:p-6 pb-5 touch-none"
       >
         <div
           ref={joystickBaseRef}
-          className={`w-32 h-32 sm:w-36 sm:h-36 rounded-full bg-white/90 backdrop-blur-md border-4 border-[#2D3436] flex items-center justify-center relative touch-none shadow-[5px_5px_0px_0px_#2D3436] transition-opacity duration-150 ${
+          className={`w-28 h-28 sm:w-36 sm:h-36 rounded-full bg-white/90 backdrop-blur-md border-4 border-[#2D3436] flex items-center justify-center relative touch-none shadow-[5px_5px_0px_0px_#2D3436] transition-opacity duration-150 ${
             isJoystickActive ? 'opacity-100 scale-105' : 'opacity-80 scale-100'
           }`}
         >
@@ -285,7 +282,7 @@ export const TouchControls: React.FC<TouchControlsProps> = ({
 
           {/* Inner stick with spring return */}
           <div
-            className="w-14 h-14 sm:w-16 sm:h-16 rounded-full bg-[#FF7675] shadow-lg border-3 border-[#2D3436] will-change-transform pointer-events-none flex items-center justify-center text-white text-xs font-black"
+            className="w-12 h-12 sm:w-16 sm:h-16 rounded-full bg-[#FF7675] shadow-lg border-3 border-[#2D3436] will-change-transform pointer-events-none flex items-center justify-center text-white text-xs font-black"
             style={{
               transform: `translate(${stickPos.x}px, ${stickPos.y}px)`,
               transition: isJoystickActive ? 'none' : 'transform 0.15s cubic-bezier(0.175, 0.885, 0.32, 1.275)'
@@ -296,16 +293,33 @@ export const TouchControls: React.FC<TouchControlsProps> = ({
         </div>
       </div>
 
-      {/* 2. RIGHT TOUCH REGION: Camera Look Pad (Behind action buttons) */}
+      {/* 2. PERMANENT FLOATING MOBILE INVENTORY BUTTON (Top-Left under HUD header) */}
+      {onOpenInventory && (
+        <button
+          onTouchStart={(e) => e.stopPropagation()}
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) => {
+            e.stopPropagation();
+            onOpenInventory();
+          }}
+          className="pointer-events-auto absolute left-3 top-20 sm:left-5 sm:top-24 z-40 px-3.5 py-2.5 rounded-2xl bg-[#55EFC4] hover:bg-[#A8E6CF] text-[#2D3436] font-black text-xs sm:text-sm border-4 border-[#2D3436] shadow-[4px_4px_0px_0px_#2D3436] active:translate-x-[2px] active:translate-y-[2px] active:shadow-[2px_2px_0px_0px_#2D3436] cursor-pointer flex items-center gap-2 uppercase tracking-wide transition-all"
+          title="Open Inventory / Backpack"
+        >
+          <span className="text-base sm:text-lg">🎒</span>
+          <span className="font-extrabold tracking-wider">BACKPACK</span>
+        </button>
+      )}
+
+      {/* 3. RIGHT TOUCH REGION: Camera Look Pad (Behind action buttons, leaving bottom hotbar clear) */}
       <div
         onTouchStart={handleLookTouchStart}
         onTouchMove={handleLookTouchMove}
         onTouchEnd={handleLookTouchEnd}
         onTouchCancel={handleLookTouchEnd}
-        className="absolute right-0 top-0 w-[55vw] h-full pointer-events-auto touch-none"
+        className="absolute right-0 top-0 w-[55vw] h-[calc(100%-85px)] pointer-events-auto touch-none"
       />
 
-      {/* 3. CONTEXTUAL ACTION BUTTONS (Thumb Arc on Bottom Right) */}
+      {/* 4. CONTEXTUAL ACTION BUTTONS (Thumb Arc on Bottom Right) */}
       <div className="absolute right-3 sm:right-6 bottom-4 sm:bottom-6 pointer-events-none flex flex-col items-end gap-2.5 z-40">
         {/* Contextual Interact Prompt Button (When near a harvestable tree, rock, crab, or raft) */}
         {promptText && (

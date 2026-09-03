@@ -4,7 +4,7 @@
  */
 
 import * as THREE from 'three';
-import { ToolType, CatchMethod, StructureType, PlacedRaft, PlacedTrap, BaitType } from '../types';
+import { ToolType, CatchMethod, StructureType, PlacedRaft, PlacedTrap, BaitType, DroppedLootContainer } from '../types';
 import { FISH_SPECIES } from '../data/fishData';
 import { sound } from '../audio/soundEngine';
 import { IslandThreeEngine } from './threeEngine';
@@ -13,6 +13,9 @@ import { Ecosystem, FishInstance } from './ecosystem';
 export interface PlayerControllerCallbacks {
   onCatchFish: (fish: FishInstance, method: CatchMethod) => void;
   onPickupItem: (type: string, count: number) => void;
+  onConsumeAuthoritativeItem?: (itemKey: string) => boolean;
+  getAuthoritativeItemCount?: (itemKey: string) => number;
+  onToolChanged?: (newTool: ToolType) => void;
   onNotification: (msg: string) => void;
   onBoundaryWarning: (warn: boolean) => void;
   onWaterStateChange: (inWater: boolean, depth: number, isSwimming: boolean, isDiving: boolean, airPercent: number) => void;
@@ -20,6 +23,9 @@ export interface PlayerControllerCallbacks {
   onRodStateChange: (state: 'idle' | 'cast' | 'nibble' | 'hooked', tension: number) => void;
   onPlaceStructure: (type: StructureType) => void;
   onRaftBoardStateChange?: (onRaft: boolean) => void;
+  onHealthChange?: (health: number, maxHealth: number, wasDamaged?: boolean) => void;
+  onPlayerDeath?: (deathPos: { x: number; y: number; z: number }) => void;
+  onRecoverLoot?: (items: Record<string, number>) => void;
 }
 
 export class PlayerController {
@@ -38,6 +44,18 @@ export class PlayerController {
   public isDiving: boolean = false;
   private waterDepth: number = 0;
 
+  // Health, Survival & Spawn
+  public health: number = 100;
+  public maxHealth: number = 100;
+  public invulnerabilityTimer: number = 0;
+  public timeSinceLastDamage: number = 0;
+  public isDead: boolean = false;
+  public activeSpawnPoint = { x: -4, y: 1.5, z: 4, name: 'Castaway Lagoon' };
+
+  // Independent touch diving controls
+  public touchDive: boolean = false;
+  public touchAscend: boolean = false;
+
   // Raft Piloting State
   public pilotingRaft: PlacedRaft | null = null;
 
@@ -46,6 +64,10 @@ export class PlayerController {
   private lastSwimStrokeTime: number = 0;
   private lastAirWarningTime: number = 0;
   private wasDivingLastFrame: boolean = false;
+
+  // Throw debounce & state (prevents duplication and rapid spam)
+  private lastThrowTimestamp: number = 0;
+  private isThrowingState: boolean = false;
 
   // View & Camera
   public yaw: number = 0;
@@ -56,6 +78,9 @@ export class PlayerController {
   private isDraggingMouse: boolean = false;
   private lastMouseX: number = 0;
   private lastMouseY: number = 0;
+  private isMouseDown: boolean = false;
+  private mouseDragDistance: number = 0;
+  private isPointerLocked: boolean = false;
 
   // Visual Character Mesh (for 3D world & 3rd person)
   public playerGroup: THREE.Group;
@@ -139,22 +164,39 @@ export class PlayerController {
 
     // Setup input listeners
     this.setupEventListeners();
+
+    // Connect predator attack callback
+    this.ecosystem.onPlayerAttackedByPredator = (predatorName: string, damage: number) => {
+      this.applyDamage(damage, predatorName);
+    };
   }
 
-  // --- CHARACTER 3D AVATAR ---
+  // --- CHARACTER 3D AVATAR (Polished tropical explorer model) ---
   private createCharacterModel(): THREE.Group {
     const group = new THREE.Group();
 
     const skinMat = new THREE.MeshStandardMaterial({ color: '#f5d0b0', roughness: 0.6 });
     const shirtMat = new THREE.MeshStandardMaterial({ color: '#FF7675', roughness: 0.7, flatShading: true });
+    const vestMat = new THREE.MeshStandardMaterial({ color: '#E17055', roughness: 0.8, flatShading: true });
     const shortsMat = new THREE.MeshStandardMaterial({ color: '#2D3436', roughness: 0.8, flatShading: true });
-    const hairMat = new THREE.MeshStandardMaterial({ color: '#4a2810', roughness: 0.9 });
+    const strawMat = new THREE.MeshStandardMaterial({ color: '#F9CA24', roughness: 0.85 });
+    const ribbonMat = new THREE.MeshStandardMaterial({ color: '#00B894', roughness: 0.5 });
+    const maskMat = new THREE.MeshStandardMaterial({ color: '#0984E3', roughness: 0.3, transparent: true, opacity: 0.85 });
+    const darkMat = new THREE.MeshBasicMaterial({ color: '#2D3436' });
 
-    // Torso
+    // Torso (Explorer Shirt + Open Vest)
     this.bodyMesh = new THREE.Mesh(new THREE.BoxGeometry(0.48, 0.65, 0.28), shirtMat);
     this.bodyMesh.position.y = 0.95;
     this.bodyMesh.castShadow = true;
     group.add(this.bodyMesh);
+
+    // Explorer Vest overlay panels
+    const vestL = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.58, 0.31), vestMat);
+    vestL.position.set(0.19, 0, 0);
+    this.bodyMesh.add(vestL);
+    const vestR = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.58, 0.31), vestMat);
+    vestR.position.set(-0.19, 0, 0);
+    this.bodyMesh.add(vestR);
 
     // Head
     this.headMesh = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.34, 0.32), skinMat);
@@ -162,10 +204,38 @@ export class PlayerController {
     this.headMesh.castShadow = true;
     group.add(this.headMesh);
 
-    // Straw Hat
-    const hat = new THREE.Mesh(new THREE.CylinderGeometry(0.38, 0.42, 0.1, 8), hairMat);
-    hat.position.y = 0.2;
-    this.headMesh.add(hat);
+    // Stylized friendly eyes
+    const eyeL = new THREE.Mesh(new THREE.SphereGeometry(0.026, 6, 6), darkMat);
+    eyeL.position.set(0.08, 0.04, -0.17);
+    this.headMesh.add(eyeL);
+    const eyeR = new THREE.Mesh(new THREE.SphereGeometry(0.026, 6, 6), darkMat);
+    eyeR.position.set(-0.08, 0.04, -0.17);
+    this.headMesh.add(eyeR);
+
+    // Upgraded Straw Hat with Teal Ribbon Band
+    const hatCrown = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.26, 0.16, 12), strawMat);
+    hatCrown.position.y = 0.24;
+    hatCrown.castShadow = true;
+    this.headMesh.add(hatCrown);
+
+    const hatBrim = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.44, 0.04, 14), strawMat);
+    hatBrim.position.y = 0.17;
+    hatBrim.castShadow = true;
+    this.headMesh.add(hatBrim);
+
+    const hatRibbon = new THREE.Mesh(new THREE.CylinderGeometry(0.262, 0.262, 0.045, 12), ribbonMat);
+    hatRibbon.position.y = 0.19;
+    this.headMesh.add(hatRibbon);
+
+    // Snorkel Mask Visor & Breathing Tube
+    const mask = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.1, 0.06), maskMat);
+    mask.position.set(0, 0.04, -0.18);
+    this.headMesh.add(mask);
+
+    const snorkelTube = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.36, 6), ribbonMat);
+    snorkelTube.position.set(0.18, 0.22, -0.05);
+    snorkelTube.rotation.z = -0.25;
+    this.headMesh.add(snorkelTube);
 
     // Arms
     this.armLeft = new THREE.Group();
@@ -175,6 +245,11 @@ export class PlayerController {
     this.armLeft.position.set(0.32, 1.22, 0);
     this.armLeft.add(armL);
     group.add(this.armLeft);
+
+    // Wrist watch/compass on left arm
+    const watch = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.09, 0.05, 8), darkMat);
+    watch.position.set(0, -0.36, 0);
+    this.armLeft.add(watch);
 
     this.armRight = new THREE.Group();
     const armR = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.55, 0.14), skinMat);
@@ -189,7 +264,7 @@ export class PlayerController {
     this.handToolGroup.position.set(0, -0.42, 0.18);
     this.armRight.add(this.handToolGroup);
 
-    // Legs
+    // Legs with Island Cargo Shorts
     this.legLeft = new THREE.Group();
     const legL = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.65, 0.18), shortsMat);
     legL.position.y = -0.32;
@@ -207,6 +282,84 @@ export class PlayerController {
     group.add(this.legRight);
 
     return group;
+  }
+
+  // --- HEALTH & DEATH SYSTEM (Relaxing exploration, non-horror) ---
+  public applyDamage(amount: number, reason: string): boolean {
+    if (this.isDead || this.invulnerabilityTimer > 0) return false;
+    this.health = Math.max(0, this.health - amount);
+    this.invulnerabilityTimer = 1.8;
+    this.timeSinceLastDamage = 0;
+    sound.playPlayerHurt();
+    this.callbacks.onHealthChange?.(this.health, this.maxHealth, true);
+
+    if (reason) {
+      this.callbacks.onNotification(`⚠️ ${reason}!`);
+    }
+
+    if (this.health <= 0) {
+      this.handlePlayerDeath();
+    }
+    return true;
+  }
+
+  public handlePlayerDeath() {
+    if (this.isDead) return;
+    this.isDead = true;
+    this.isInputLocked = true;
+    this.resetAllInputs();
+
+    const deathPos = {
+      x: this.position.x,
+      y: this.position.y,
+      z: this.position.z
+    };
+
+    this.callbacks.onNotification('😴 You exhausted yourself! Washing ashore at Castaway Lagoon...');
+    this.callbacks.onPlayerDeath?.(deathPos);
+
+    // Gentle fade/transition back to Castaway Lagoon spawn
+    setTimeout(() => {
+      this.respawnPlayer();
+    }, 2400);
+  }
+
+  public respawnPlayer() {
+    const terrainH = this.engine.getTerrainHeight(this.activeSpawnPoint.x, this.activeSpawnPoint.z);
+    this.position.set(
+      this.activeSpawnPoint.x,
+      Math.max(this.activeSpawnPoint.y, terrainH + 1.2),
+      this.activeSpawnPoint.z
+    );
+    this.velocity.set(0, 0, 0);
+    this.health = this.maxHealth;
+    this.airLevel = 100;
+    this.isDead = false;
+    this.isInputLocked = false;
+    this.invulnerabilityTimer = 2.5;
+    this.timeSinceLastDamage = 0;
+    this.equippedTool = 'hands';
+    this.callbacks.onToolChanged?.('hands');
+    sound.playPlayerRespawn();
+    this.callbacks.onHealthChange?.(this.health, this.maxHealth, false);
+    this.callbacks.onWaterStateChange(false, 0, false, false, 100);
+    this.callbacks.onNotification('🌊 Resurfaced at Castaway Lagoon. Look for your beacon buoy to recover your supplies!');
+  }
+
+  public recoverDroppedSupplies(container: DroppedLootContainer) {
+    if (!container || !container.items) return;
+    this.callbacks.onRecoverLoot?.(container.items);
+    sound.playRecoveryChime();
+    this.engine.removeDroppedLootContainer(container.id);
+    this.callbacks.onNotification('✨ Supplies Recovered! Picked up all your lost items.');
+  }
+
+  public setTouchDive(active: boolean) {
+    this.touchDive = active;
+  }
+
+  public setTouchAscend(active: boolean) {
+    this.touchAscend = active;
   }
 
   // --- INPUT RESET & SAFETY ---
@@ -235,7 +388,7 @@ export class PlayerController {
 
   public applyTouchLook(dx: number, dy: number) {
     if (this.isInputLocked) return;
-    const sensitivity = 0.0035;
+    const sensitivity = 0.0046;
     this.yaw -= dx * sensitivity;
     this.pitch -= dy * sensitivity;
     this.pitch = Math.max(-Math.PI / 2.3, Math.min(Math.PI / 2.3, this.pitch));
@@ -307,6 +460,10 @@ export class PlayerController {
         break;
       case 'ShiftLeft': case 'ShiftRight': this.keys.sprint = true; break;
       case 'KeyC':
+      case 'ControlLeft':
+      case 'ControlRight':
+        this.keys.sneak = true;
+        this.keys.dive = true;
         this.isSneaking = !this.isSneaking;
         this.callbacks.onSneakChange(this.isSneaking);
         break;
@@ -322,11 +479,11 @@ export class PlayerController {
         }
         break;
       case 'Space':
+        this.keys.jump = true;
+        this.keys.ascend = true;
         if (this.pilotingRaft) {
           this.disembarkRaft();
-        } else if (this.isSwimming) {
-          this.velocity.y = 4.0;
-        } else if (this.isGrounded) {
+        } else if (!this.isSwimming && this.isGrounded) {
           this.velocity.y = 5.2;
           this.isGrounded = false;
           sound.playFootstep(this.isWading);
@@ -344,30 +501,57 @@ export class PlayerController {
       case 'KeyQ': this.keys.turnLeft = false; break;
       case 'KeyE': this.keys.turnRight = false; break;
       case 'ShiftLeft': case 'ShiftRight': this.keys.sprint = false; break;
+      case 'KeyC':
+      case 'ControlLeft':
+      case 'ControlRight':
+        this.keys.sneak = false;
+        this.keys.dive = false;
+        break;
+      case 'Space':
+        this.keys.jump = false;
+        this.keys.ascend = false;
+        break;
     }
   }
 
   private handleMouseDown(e: MouseEvent) {
     if (this.isInputLocked) return;
     sound.resume();
-    this.isDraggingMouse = true;
+    this.isMouseDown = true;
     this.lastMouseX = e.clientX;
     this.lastMouseY = e.clientY;
+    this.mouseDragDistance = 0;
 
-    if (e.button === 0) {
-      this.triggerPrimaryAction();
-    } else if (e.button === 2) {
-      e.preventDefault();
-      this.triggerThrowAction();
+    if (this.isPointerLocked) {
+      if (e.button === 0) {
+        this.triggerPrimaryAction();
+      } else if (e.button === 2) {
+        e.preventDefault();
+        this.triggerThrowAction();
+      }
     }
   }
 
   private handleMouseMove(e: MouseEvent) {
-    if (this.isInputLocked || !this.isDraggingMouse) return;
+    if (this.isInputLocked) return;
+
+    if (this.isPointerLocked) {
+      const deltaX = e.movementX || 0;
+      const deltaY = e.movementY || 0;
+      this.yaw -= deltaX * 0.0028;
+      this.pitch -= deltaY * 0.0028;
+      this.pitch = Math.max(-Math.PI / 2.3, Math.min(Math.PI / 2.3, this.pitch));
+      return;
+    }
+
+    if (!this.isMouseDown) return;
+
     const deltaX = e.clientX - this.lastMouseX;
     const deltaY = e.clientY - this.lastMouseY;
     this.lastMouseX = e.clientX;
     this.lastMouseY = e.clientY;
+
+    this.mouseDragDistance += Math.abs(deltaX) + Math.abs(deltaY);
 
     const sensitivity = 0.0035;
     this.yaw -= deltaX * sensitivity;
@@ -377,14 +561,42 @@ export class PlayerController {
     this.pitch = Math.max(-Math.PI / 2.3, Math.min(Math.PI / 2.3, this.pitch));
   }
 
-  private handleMouseUp() {
+  private handleMouseUp(e: MouseEvent) {
+    if (!this.isPointerLocked && this.isMouseDown) {
+      // If mouse moved less than 6px total, this is a clean deliberate CLICK (not a camera rotation drag)
+      if (this.mouseDragDistance < 6) {
+        if (e.button === 0) {
+          this.triggerPrimaryAction();
+        } else if (e.button === 2) {
+          e.preventDefault();
+          this.triggerThrowAction();
+        }
+      }
+    }
+    this.isMouseDown = false;
     this.isDraggingMouse = false;
+    this.mouseDragDistance = 0;
   }
 
   // --- INPUT EVENT LISTENERS ---
   private setupEventListeners() {
     window.addEventListener('keydown', this.handleKeyDownBound);
     window.addEventListener('keyup', this.handleKeyUpBound);
+
+    // Canvas click requests pointer lock for desktop PC camera control
+    this.engine.container.addEventListener('click', () => {
+      if (!('ontouchstart' in window) && document.pointerLockElement !== this.engine.container && !this.isInputLocked) {
+        try {
+          this.engine.container.requestPointerLock?.();
+        } catch {
+          // Pointer lock optional
+        }
+      }
+    });
+
+    document.addEventListener('pointerlockchange', () => {
+      this.isPointerLocked = document.pointerLockElement === this.engine.container;
+    });
 
     // Mouse drag turning & Canvas Interaction
     this.engine.container.addEventListener('mousedown', this.handleMouseDownBound);
@@ -539,6 +751,9 @@ export class PlayerController {
   public triggerPrimaryAction() {
     const cameraDir = new THREE.Vector3();
     this.engine.camera.getWorldDirection(cameraDir);
+
+    // Immediately face the action direction
+    this.characterFacingYaw = this.yaw + Math.PI;
 
     // If piloting raft, click does not swing on foot
     if (this.pilotingRaft) {
@@ -936,26 +1151,97 @@ export class PlayerController {
 
   // 2. THROW ACTION (Right click / [R])
   public triggerThrowAction() {
+    if (this.isInputLocked) return;
+    const now = Date.now();
+    if (now - this.lastThrowTimestamp < 450 || this.isThrowingState) {
+      return; // Debounce throw actions
+    }
+
     const cameraDir = new THREE.Vector3();
     this.engine.camera.getWorldDirection(cameraDir);
 
+    // Instant turning alignment towards throw target
+    this.characterFacingYaw = this.yaw + Math.PI;
+
     if (this.equippedTool === 'spear') {
-      sound.playThrowWhoosh();
-      const origin = new THREE.Vector3().copy(this.position).add(new THREE.Vector3(0, 0.4, 0));
-      const velocity = new THREE.Vector3().copy(cameraDir).multiplyScalar(18).add(new THREE.Vector3(0, 2.5, 0));
-      this.engine.spawnThrownSpear(origin, velocity);
+      const currentCount = this.callbacks.getAuthoritativeItemCount ? this.callbacks.getAuthoritativeItemCount('spear') : 0;
+      if (currentCount <= 0) {
+        this.setEquippedTool('hands');
+        this.callbacks.onToolChanged?.('hands');
+        this.callbacks.onNotification('No spears in inventory to throw!');
+        return;
+      }
 
-      this.callbacks.onNotification('🔱 Threw Stone Spear!');
-      this.callbacks.onPickupItem('spear', -1);
-      this.setEquippedTool('hands');
-    } else if (this.equippedTool === 'rock') {
-      sound.playThrowWhoosh();
-      const origin = new THREE.Vector3().copy(this.position).add(new THREE.Vector3(0, 0.3, 0));
-      const velocity = new THREE.Vector3().copy(cameraDir).multiplyScalar(14).add(new THREE.Vector3(0, 2.0, 0));
-      this.engine.spawnThrownRock(origin, velocity);
+      this.lastThrowTimestamp = now;
+      this.isThrowingState = true;
 
-      this.callbacks.onNotification('🪨 Threw Rock!');
-      this.callbacks.onPickupItem('rock', -1);
+      // Authoritative consumption: decrement inventory FIRST before projectile creation
+      let consumed = false;
+      if (this.callbacks.onConsumeAuthoritativeItem) {
+        consumed = this.callbacks.onConsumeAuthoritativeItem('spear');
+      } else {
+        this.callbacks.onPickupItem('spear', -1);
+        consumed = true;
+      }
+
+      if (consumed) {
+        sound.playThrowWhoosh();
+        const origin = new THREE.Vector3().copy(this.position).add(new THREE.Vector3(0, 0.4, 0));
+        const velocity = new THREE.Vector3().copy(cameraDir).multiplyScalar(18).add(new THREE.Vector3(0, 2.5, 0));
+        this.engine.spawnThrownSpear(origin, velocity);
+        this.callbacks.onNotification('🔱 Threw Stone Spear!');
+
+        const remaining = this.callbacks.getAuthoritativeItemCount ? this.callbacks.getAuthoritativeItemCount('spear') : 0;
+        if (remaining <= 0) {
+          this.setEquippedTool('hands');
+          this.callbacks.onToolChanged?.('hands');
+        }
+      } else {
+        this.setEquippedTool('hands');
+        this.callbacks.onToolChanged?.('hands');
+      }
+      setTimeout(() => { this.isThrowingState = false; }, 350);
+
+    } else if (this.equippedTool === 'rock' || this.equippedTool === 'stone') {
+      const itemKey = this.equippedTool;
+      const currentCount = this.callbacks.getAuthoritativeItemCount ? this.callbacks.getAuthoritativeItemCount(itemKey) : 0;
+      if (currentCount <= 0) {
+        this.setEquippedTool('hands');
+        this.callbacks.onToolChanged?.('hands');
+        this.callbacks.onNotification(`No ${itemKey === 'stone' ? 'stone chunks' : 'rocks'} remaining to throw!`);
+        return;
+      }
+
+      this.lastThrowTimestamp = now;
+      this.isThrowingState = true;
+
+      // Authoritative consumption: decrement inventory FIRST before projectile creation
+      let consumed = false;
+      if (this.callbacks.onConsumeAuthoritativeItem) {
+        consumed = this.callbacks.onConsumeAuthoritativeItem(itemKey);
+      } else {
+        this.callbacks.onPickupItem(itemKey, -1);
+        consumed = true;
+      }
+
+      if (consumed) {
+        sound.playThrowWhoosh();
+        const origin = new THREE.Vector3().copy(this.position).add(new THREE.Vector3(0, 0.3, 0));
+        const velocity = new THREE.Vector3().copy(cameraDir).multiplyScalar(14).add(new THREE.Vector3(0, 2.0, 0));
+        this.engine.spawnThrownRock(origin, velocity);
+        this.callbacks.onNotification(itemKey === 'stone' ? '🪨 Threw Stone Chunk!' : '🪨 Threw Rock!');
+
+        // If that was the last rock/stone, unequip immediately and inform UI
+        const remaining = this.callbacks.getAuthoritativeItemCount ? this.callbacks.getAuthoritativeItemCount(itemKey) : 0;
+        if (remaining <= 0) {
+          this.setEquippedTool('hands');
+          this.callbacks.onToolChanged?.('hands');
+        }
+      } else {
+        this.setEquippedTool('hands');
+        this.callbacks.onToolChanged?.('hands');
+      }
+      setTimeout(() => { this.isThrowingState = false; }, 350);
     }
   }
 
@@ -1298,10 +1584,13 @@ export class PlayerController {
         raft.speed = 0;
       }
 
-      raft.group.position.set(raft.x, 0.06, raft.z);
+      const raftTerrainY = this.engine.getTerrainHeight(raft.x, raft.z);
+      const bob = Math.sin(now * 0.0018 + raft.x * 0.2 + raft.z * 0.2) * 0.035;
+      const floatingY = Math.max(0.06, raftTerrainY + 0.12) + bob;
+      raft.group.position.set(raft.x, floatingY, raft.z);
 
       // Pin player position onto raft deck
-      this.position.set(raft.x, 0.75, raft.z);
+      this.position.set(raft.x, floatingY + 0.65, raft.z);
       this.yaw = raft.rotY;
       this.characterFacingYaw = raft.rotY;
       this.velocity.set(0, 0, 0);
@@ -1332,14 +1621,34 @@ export class PlayerController {
       }
     }
 
-    // Terrain & Water check
+    // Terrain & Water check (with raft deck standing support)
     const terrainHeight = this.engine.getTerrainHeight(this.position.x, this.position.z);
-    const seaLevel = 0.0;
-    this.waterDepth = Math.max(0, seaLevel - terrainHeight);
-    this.isWading = this.waterDepth > 0.15;
-    this.isSwimming = this.waterDepth > 1.2;
+    let effectiveGroundHeight = terrainHeight;
+    let isStandingOnRaftDeck = false;
 
-    if (this.isSwimming && (this.isSneaking || this.position.y < -0.2)) {
+    // Check if player is standing on any placed raft deck
+    for (const raft of this.engine.worldObjects.placedRafts) {
+      const dx = this.position.x - raft.x;
+      const dz = this.position.z - raft.z;
+      const deckRadius = raft.isExpanded ? 2.6 : 1.7;
+      if (dx * dx + dz * dz < deckRadius * deckRadius) {
+        const deckHeight = raft.group.position.y + 0.16;
+        if (deckHeight > effectiveGroundHeight) {
+          effectiveGroundHeight = deckHeight;
+          isStandingOnRaftDeck = true;
+        }
+      }
+    }
+
+    const seaLevel = 0.0;
+    this.waterDepth = isStandingOnRaftDeck ? 0 : Math.max(0, seaLevel - terrainHeight);
+    this.isWading = !isStandingOnRaftDeck && this.waterDepth > 0.15;
+    this.isSwimming = !isStandingOnRaftDeck && this.waterDepth > 1.2;
+
+    const isDiveHeld = (this.keys.sneak || this.keys.dive || this.touchDive) && !this.isInputLocked;
+    const isAscendHeld = (this.keys.jump || this.keys.ascend || this.touchAscend) && !this.isInputLocked;
+
+    if (this.isSwimming && (isDiveHeld || this.position.y < -0.2)) {
       this.isDiving = true;
     } else {
       this.isDiving = false;
@@ -1347,17 +1656,31 @@ export class PlayerController {
 
     if (this.isDiving) {
       if (!this.wasDivingLastFrame) sound.playDiveSubmerge();
-      this.airLevel = Math.max(0, this.airLevel - 5 * delta);
+      this.airLevel = Math.max(0, this.airLevel - 5.5 * delta);
 
-      if (this.airLevel < 25 && now - this.lastAirWarningTime > 2000) {
+      if (this.airLevel < 25 && now - this.lastAirWarningTime > 2500) {
         sound.playLowAirWarning();
         this.lastAirWarningTime = now;
+      }
+
+      if (this.airLevel <= 0) {
+        this.applyDamage(8.0 * delta, 'Out of air');
       }
     } else {
       if (this.wasDivingLastFrame) sound.playSurfaceGasp();
       this.airLevel = Math.min(100, this.airLevel + 40 * delta);
     }
     this.wasDivingLastFrame = this.isDiving;
+
+    // Gradual health regeneration when safe (not drowning, not recently damaged)
+    this.timeSinceLastDamage += delta;
+    if (this.invulnerabilityTimer > 0) {
+      this.invulnerabilityTimer = Math.max(0, this.invulnerabilityTimer - delta);
+    }
+    if (!this.isDead && this.health < this.maxHealth && this.timeSinceLastDamage > 5.0 && this.airLevel > 35) {
+      this.health = Math.min(this.maxHealth, this.health + 3.0 * delta);
+      this.callbacks.onHealthChange?.(this.health, this.maxHealth, false);
+    }
 
     this.callbacks.onWaterStateChange(this.isWading, this.waterDepth, this.isSwimming, this.isDiving, this.airLevel);
 
@@ -1389,28 +1712,34 @@ export class PlayerController {
       this.velocity.x = worldMove.x * speed * inputMagnitude;
       this.velocity.z = worldMove.z * speed * inputMagnitude;
 
-      // Immediate turning authority with smooth visual rotation
+      // Immediate, crisp turning authority with responsive visual alignment
       const targetFacing = Math.atan2(worldMove.x, worldMove.z) + Math.PI;
       let diff = (targetFacing - this.characterFacingYaw) % (Math.PI * 2);
       if (diff < -Math.PI) diff += Math.PI * 2;
       if (diff > Math.PI) diff -= Math.PI * 2;
-      const turnSpeed = 20.0;
+      const turnSpeed = 26.0;
       this.characterFacingYaw += diff * Math.min(1.0, turnSpeed * delta);
     } else {
       this.velocity.x = 0;
       this.velocity.z = 0;
+
+      // When standing still or aiming, smoothly and responsively turn character to face camera aim
+      const cameraFacing = this.yaw + Math.PI;
+      let idleDiff = (cameraFacing - this.characterFacingYaw) % (Math.PI * 2);
+      if (idleDiff < -Math.PI) idleDiff += Math.PI * 2;
+      if (idleDiff > Math.PI) idleDiff -= Math.PI * 2;
+      if (Math.abs(idleDiff) > 0.8) {
+        const turnSpeed = 14.0;
+        this.characterFacingYaw += Math.sign(idleDiff) * (Math.abs(idleDiff) - 0.7) * Math.min(1.0, turnSpeed * delta);
+      }
     }
 
     if (this.isSwimming) {
-      // 3D Diving & Swimming Depth Control
-      const isMovingForward = (this.keys.forward || this.touchMove.z < -0.2) && !this.isInputLocked;
-      const pitchVerticalFactor = isMovingForward ? -Math.sin(this.pitch) * 2.8 : 0;
-
-      if (this.isSneaking) {
-        // Active dive down
-        this.velocity.y = -2.8 + pitchVerticalFactor;
-      } else if (pitchVerticalFactor !== 0) {
-        this.velocity.y = pitchVerticalFactor;
+      // True Free Diving: Pitch controls camera view ONLY, not vertical swimming!
+      if (isDiveHeld) {
+        this.velocity.y = -2.8;
+      } else if (isAscendHeld) {
+        this.velocity.y = 3.0;
       } else {
         // Neutral Buoyancy: retain current depth cleanly underwater!
         if (this.position.y < -0.15) {
@@ -1436,8 +1765,15 @@ export class PlayerController {
     }
 
     const minHeightFromGround = this.isDiving ? 0.35 : (this.isSneaking ? 0.9 : 1.6);
-    if (this.position.y <= terrainHeight + minHeightFromGround) {
-      this.position.y = terrainHeight + minHeightFromGround;
+    if (this.position.y <= effectiveGroundHeight + minHeightFromGround) {
+      if (!this.isSwimming && !this.isGrounded && this.velocity.y < -12.5) {
+        const fallSpeed = Math.abs(this.velocity.y);
+        const fallDmg = Math.min(50, Math.round((fallSpeed - 11.5) * 5));
+        if (fallDmg >= 10) {
+          this.applyDamage(fallDmg, 'High fall');
+        }
+      }
+      this.position.y = effectiveGroundHeight + minHeightFromGround;
       this.velocity.y = 0;
       this.isGrounded = true;
     }
@@ -1467,6 +1803,19 @@ export class PlayerController {
         this.engine.scene.remove(item.group);
         this.engine.worldObjects.groundItems.splice(i, 1);
         this.callbacks.onNotification(`Picked up ${item.type.toUpperCase()}`);
+      }
+    }
+
+    // Recover nearby dropped supplies containers (lost knapsack / marine buoy)
+    for (let i = this.engine.worldObjects.droppedLootContainers.length - 1; i >= 0; i--) {
+      const container = this.engine.worldObjects.droppedLootContainers[i];
+      const dx = container.x - this.position.x;
+      const dz = container.z - this.position.z;
+      const dy = Math.abs(container.y - this.position.y);
+      const dist = Math.sqrt(dx * dx + dz * dz);
+      if (dist < 2.5 && dy < 3.2) {
+        this.recoverDroppedSupplies(container);
+        break;
       }
     }
 
@@ -1531,26 +1880,44 @@ export class PlayerController {
   }
 
   private updateCharacterVisuals(delta: number, worldMove: THREE.Vector3) {
-    this.playerGroup.position.set(this.position.x, this.position.y - 1.6, this.position.z);
+    const baseYOffset = this.isSneaking && !this.isSwimming ? -1.85 : -1.6;
+    this.playerGroup.position.set(this.position.x, this.position.y + baseYOffset, this.position.z);
     this.playerGroup.rotation.y = this.characterFacingYaw;
 
-    if (this.isSwimming) {
-      // Swimming tilt
-      this.playerGroup.rotation.x = 0.5;
-    } else {
-      this.playerGroup.rotation.x = 0;
-    }
+    // Pitch tilt for head/mask
+    this.headMesh.rotation.x = this.pitch * 0.45;
 
-    if (worldMove.lengthSq() > 0.01) {
-      const walkFreq = (this.keys.sprint || this.touchMove.isSprinting) ? 14 : 8;
-      const legAngle = Math.sin(Date.now() * 0.008 * (walkFreq / 8)) * 0.65;
-      this.legLeft.rotation.x = legAngle;
-      this.legRight.rotation.x = -legAngle;
-      this.armLeft.rotation.x = -legAngle * 0.7;
-    } else {
+    if (this.isDead) {
+      // Gentle exhausted resting pose
+      this.playerGroup.rotation.x = -1.45;
+      this.playerGroup.rotation.z = 0.2;
       this.legLeft.rotation.x = 0;
       this.legRight.rotation.x = 0;
       this.armLeft.rotation.x = 0;
+    } else if (this.isSwimming) {
+      // Natural swimming/diving tilt and crawl stroke
+      this.playerGroup.rotation.x = this.isDiving ? 1.35 : 0.7;
+      this.playerGroup.rotation.z = 0;
+
+      const swimCycle = Date.now() * 0.007;
+      this.legLeft.rotation.x = Math.sin(swimCycle) * 0.55;
+      this.legRight.rotation.x = -Math.sin(swimCycle) * 0.55;
+      this.armLeft.rotation.x = -0.75 + Math.sin(swimCycle) * 0.45;
+    } else {
+      this.playerGroup.rotation.x = 0;
+      this.playerGroup.rotation.z = 0;
+
+      if (worldMove.lengthSq() > 0.01) {
+        const walkFreq = (this.keys.sprint || this.touchMove.isSprinting) ? 14 : 8;
+        const legAngle = Math.sin(Date.now() * 0.008 * (walkFreq / 8)) * 0.65;
+        this.legLeft.rotation.x = legAngle;
+        this.legRight.rotation.x = -legAngle;
+        this.armLeft.rotation.x = -legAngle * 0.7;
+      } else {
+        this.legLeft.rotation.x = 0;
+        this.legRight.rotation.x = 0;
+        this.armLeft.rotation.x = 0;
+      }
     }
 
     if (this.isSwinging) {
@@ -1569,6 +1936,9 @@ export class PlayerController {
       }
     }
 
+    // Invulnerability blink effect when damaged
+    const isFlickerVisible = this.invulnerabilityTimer <= 0 || Math.floor(Date.now() / 100) % 2 === 0;
+
     if (this.isThirdPerson) {
       const camOffset = new THREE.Vector3(
         -Math.sin(this.yaw) * this.cameraDistance * Math.cos(this.pitch),
@@ -1578,7 +1948,7 @@ export class PlayerController {
 
       this.engine.camera.position.copy(this.position).add(camOffset);
       this.engine.camera.lookAt(this.position.x, this.position.y + 0.3, this.position.z);
-      this.playerGroup.visible = true;
+      this.playerGroup.visible = isFlickerVisible;
     } else {
       this.engine.camera.position.copy(this.position);
       this.engine.camera.rotation.set(0, 0, 0);

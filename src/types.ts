@@ -212,6 +212,26 @@ export interface CaughtEvent {
   firstTimeForSpecies: boolean;
 }
 
+export interface DroppedLootContainer {
+  id: string;
+  group: any;
+  x: number;
+  y: number;
+  z: number;
+  items: Record<string, number>;
+  createdAt: number;
+  markerMesh?: any;
+}
+
+export interface SpawnPoint {
+  id: string;
+  name: string;
+  x: number;
+  y: number;
+  z: number;
+  yaw?: number;
+}
+
 export interface LiveFishHolding {
   species: FishSpecies;
   sizeCm: number;
